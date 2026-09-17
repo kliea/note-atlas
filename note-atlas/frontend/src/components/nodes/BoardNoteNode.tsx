@@ -122,6 +122,7 @@ export function BoardNoteNode({ id, data, selected }: NodeProps<BoardNoteNode>) 
       className={className}
       style={style}
       aria-label={`Note ${data.title}`}
+      aria-selected={selected}
       onDoubleClick={(event) => {
         event.stopPropagation();
         session?.startEdit(id);

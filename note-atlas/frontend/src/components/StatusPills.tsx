@@ -19,7 +19,7 @@ function labelFor(kind: "backend" | "model", state: PillState): string {
 
 export function StatusPills({ backend, model, modelName }: StatusPillsProps) {
   return (
-    <div className="pills">
+    <div className="pills" role="status" aria-live="polite">
       <span className={`pill pill-${backend}`}>
         backend = {labelFor("backend", backend)}
       </span>
