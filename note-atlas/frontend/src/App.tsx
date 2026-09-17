@@ -255,7 +255,7 @@ export default function App() {
         />
       ) : null}
       {view === "ask" ? <AskView onSelectSource={handleAskSource} /> : null}
-      {view === "board" ? <BoardView /> : null}
+      {view === "board" ? <BoardView colorMode={resolved} /> : null}
     </div>
   );
 }
