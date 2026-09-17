@@ -1,6 +1,7 @@
-import { createContext, useContext, useEffect, useRef } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
-import type { ExtractStatus, Topic } from "../../types";
+import type { ExtractStatus, Point, Topic } from "../../types";
+import { BoardSessionContext, type BoardSession } from "./BoardSession";
 
 export type BoardNoteData = {
   title: string;
@@ -16,17 +17,6 @@ export type BoardNoteData = {
 };
 
 export type BoardNoteNode = Node<BoardNoteData, "boardNote">;
-
-export type BoardSession = {
-  startEdit: (nodeId: string) => void;
-  updateText: (nodeId: string, text: string) => void;
-  commitEdit: (nodeId: string, text: string) => void;
-  cutConnection: (connectionId: number) => void;
-  acceptSuggestion: (fromId: number, toId: number) => void;
-  dismissSuggestion: (fromId: number, toId: number) => void;
-};
-
-export const BoardSessionContext = createContext<BoardSession | null>(null);
 
 const SIDES: Position[] = [Position.Top, Position.Right, Position.Bottom, Position.Left];
 
@@ -116,7 +106,7 @@ export function BoardNoteNode({ id, data, selected }: NodeProps<BoardNoteNode>) 
   const preview = data.text.trim() || data.title;
   const [first, ...rest] = preview.split("\n");
   const tags = uniqueTags(data.topics);
-  const points = data.topics.flatMap((topic) => topic.points.map((point) => point.text));
+  const points = pointsForCard(data.topics);
   return (
     <article
       className={className}
@@ -130,7 +120,7 @@ export function BoardNoteNode({ id, data, selected }: NodeProps<BoardNoteNode>) 
     >
       <BoardHandles connectable={connectable} title={data.title || "note"} />
       <p className="map-node-kicker">
-        {thinking ? "Polishing" : data.source === "ask" ? "Answer" : "Note"}
+        {thinking ? "Extracting" : data.source === "ask" ? "Answer" : "Note"}
       </p>
       <h3>{first || data.title || "Untitled"}</h3>
       {rest.length > 0 ? (
@@ -144,8 +134,15 @@ export function BoardNoteNode({ id, data, selected }: NodeProps<BoardNoteNode>) 
       )}
       {points.length > 0 ? (
         <ul className="board-note-points">
-          {points.slice(0, 3).map((text) => (
-            <li key={text}>{text}</li>
+          {points.map((point) => (
+            <li key={point.id}>
+              <span className="board-note-point-text">{point.text}</span>
+              <PointContext
+                noteId={data.noteId}
+                point={point}
+                session={session}
+              />
+            </li>
           ))}
         </ul>
       ) : null}
@@ -170,4 +167,99 @@ function uniqueTags(topics: Topic[]): string[] {
     }
   }
   return tags;
+}
+
+function isVisibleContext(point: Point): boolean {
+  return Boolean(
+    point.context &&
+      (point.context_status === "suggested" || point.context_status === "accepted"),
+  );
+}
+
+function pointsForCard(topics: Topic[]): Point[] {
+  return topics.flatMap((topic) => topic.points).slice(0, 3);
+}
+
+function PointContext({
+  noteId,
+  point,
+  session,
+}: {
+  noteId: number;
+  point: Point;
+  session: BoardSession | null;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(point.context ?? "");
+  if (!isVisibleContext(point) || !point.context) {
+    return null;
+  }
+  const suggested = point.context_status === "suggested";
+
+  function stop(event: { stopPropagation: () => void }): void {
+    event.stopPropagation();
+  }
+
+  return (
+    <div className="board-note-context" role="note" aria-label="AI context">
+      <span className="board-note-context-tag">AI context</span>
+      {editing ? (
+        <textarea
+          className="board-note-context-editor nodrag nopan nowheel"
+          value={draft}
+          rows={3}
+          aria-label="Edit AI context"
+          onPointerDown={stop}
+          onDoubleClick={stop}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+      ) : (
+        <p>{point.context}</p>
+      )}
+      {suggested ? (
+        <div className="board-note-context-actions nodrag nopan" onPointerDown={stop}>
+          {editing ? (
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => {
+                const next = draft.trim();
+                if (next) {
+                  session?.savePointContext(noteId, point.id, next);
+                }
+                setEditing(false);
+              }}
+            >
+              Save
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => session?.acceptPointContext(noteId, point.id)}
+            >
+              Accept
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={() => {
+              setDraft(point.context ?? "");
+              setEditing((open) => !open);
+            }}
+          >
+            {editing ? "Cancel" : "Edit"}
+          </button>
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={() => session?.dismissPointContext(noteId, point.id)}
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
 }

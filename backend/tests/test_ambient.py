@@ -11,7 +11,7 @@ from app.db import init_db, replace_note_extraction
 from app.embed import EMBEDDING_DIM
 from app.index import index_note
 from app.main import app
-from app.models import ExtractedTopic, RephrasedNote
+from app.models import ExtractedTopic
 
 SAMPLE_NOTE = """
 Lecture: B+ trees in database indexes
@@ -62,6 +62,18 @@ def _fake_embed(texts: Sequence[str]) -> list[list[float]]:
     return encoded
 
 
+def _scripted_chat(extract_payloads: list[dict[str, object]]):
+    replies = [json.dumps(payload) for payload in extract_payloads]
+
+    def chat(messages: list[dict[str, str]], json_mode: bool = False) -> str:
+        content = messages[-1]["content"]
+        if "You annotate, you do not rewrite" in content:
+            return json.dumps({"additions": []})
+        return replies.pop(0)
+
+    return chat
+
+
 def _client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("DB_PATH", str(tmp_path / "notes.db"))
     init_db()
@@ -86,21 +98,7 @@ def test_spatial_patch_does_not_queue_extraction(
 def test_create_extracts_in_background(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    replies = [json.dumps(VALID_JSON)]
-    monkeypatch.setattr(
-        "app.extract.chat",
-        lambda messages, json_mode=False: replies.pop(0),
-    )
-    monkeypatch.setattr(
-        "app.ambient.rephrase_jot",
-        lambda text, title="": RephrasedNote(
-            title="B+ trees",
-            body=(
-                "Leaf nodes store keys plus pointers to records.\n"
-                "Internal nodes only route the search."
-            ),
-        ),
-    )
+    monkeypatch.setattr("app.extract.chat", _scripted_chat([VALID_JSON]))
     monkeypatch.setattr("app.index.embed_texts", _fake_embed)
     client = _client(tmp_path, monkeypatch)
     created = client.post(
@@ -120,28 +118,14 @@ def test_create_extracts_in_background(
     assert len(body["topics"]) == 1
     assert body["topics"][0]["title"] == "B+ tree structure"
     assert [tag["tag"] for tag in body["topics"][0]["tags"]] == ["b-tree", "indexes"]
-    assert replies == []
 
 
 @pytest.mark.ambient
-def test_create_rephrases_jot_before_topics(
+def test_create_does_not_rewrite_raw_text(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    replies = [json.dumps(VALID_JSON)]
-    monkeypatch.setattr(
-        "app.extract.chat",
-        lambda messages, json_mode=False: replies.pop(0),
-    )
-    monkeypatch.setattr(
-        "app.ambient.rephrase_jot",
-        lambda text, title="": RephrasedNote(
-            title="B+ tree range scans",
-            body=(
-                "Linked leaves let you walk keys in order without hashing. "
-                "Fanout still beats binary trees on disk I/O."
-            ),
-        ),
-    )
+    jot = "linked leaves, high fanout, less disk io"
+    monkeypatch.setattr("app.extract.chat", _scripted_chat([VALID_JSON]))
     monkeypatch.setattr("app.index.embed_texts", _fake_embed)
     client = _client(tmp_path, monkeypatch)
     created = client.post(
@@ -149,33 +133,99 @@ def test_create_rephrases_jot_before_topics(
         json={
             "title": "b+ scan",
             "source": "",
-            "raw_text": "linked leaves, high fanout, less disk io",
+            "raw_text": jot,
         },
     ).json()
     body = client.get(f"/notes/{created['id']}").json()
     assert body["extract_status"] == "done"
-    assert body["title"] == "B+ tree range scans"
-    assert "Linked leaves" in body["raw_text"]
+    assert body["title"] == "b+ scan"
+    assert body["raw_text"] == jot
     assert body["topics"][0]["title"] == "B+ tree structure"
+
+
+@pytest.mark.ambient
+def test_create_enriches_terse_points_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    raw = (
+        "Traditional SaaS vs AI-as-a-service > flywheel model\n"
+        "vertical AI\n"
+        "case study: Matsuo Lab\n"
+        "Take notes during the lecture."
+    )
+    extract_payload = {
+        "topics": [
+            {
+                "title": "Lecture fragments",
+                "points": [
+                    "Traditional SaaS vs AI-as-a-service > flywheel model",
+                    "vertical AI",
+                    "case study: Matsuo Lab",
+                    "Take notes during the lecture.",
+                ],
+                "tags": ["ai", "lecture"],
+            }
+        ]
+    }
+
+    def chat(messages: list[dict[str, str]], json_mode: bool = False) -> str:
+        content = messages[-1]["content"]
+        if "You annotate, you do not rewrite" in content:
+            ids: list[int] = []
+            texts: list[str] = []
+            blob = json.loads(
+                content.split("Points (verbatim; do not modify):\n", 1)[1].split(
+                    "\nRaw note", 1
+                )[0]
+            )
+            for item in blob:
+                ids.append(int(item["id"]))
+                texts.append(str(item["text"]))
+            additions = []
+            for point_id, text in zip(ids, texts, strict=True):
+                if text == "Take notes during the lecture.":
+                    continue
+                if "flywheel" in text:
+                    context = (
+                        "A flywheel is a loop where usage improves the model, "
+                        "which is the opposite of traditional SaaS shipping a fixed tool."
+                    )
+                elif "vertical AI" in text:
+                    context = "Vertical AI is software built for one industry or job."
+                else:
+                    context = (
+                        "A case study is a worked example; the name points to that example."
+                    )
+                additions.append({"point_id": point_id, "context": context})
+            return json.dumps({"additions": additions})
+        return json.dumps(extract_payload)
+
+    monkeypatch.setattr("app.extract.chat", chat)
+    monkeypatch.setattr("app.index.embed_texts", _fake_embed)
+    client = _client(tmp_path, monkeypatch)
+    created = client.post(
+        "/notes",
+        json={"title": "Matsuo Lab", "source": "lecture", "raw_text": raw},
+    ).json()
+    body = client.get(f"/notes/{created['id']}").json()
+    assert body["extract_status"] == "done"
+    assert body["raw_text"] == raw
+    points = body["topics"][0]["points"]
+    assert [point["text"] for point in points] == extract_payload["topics"][0]["points"]
+    by_text = {point["text"]: point for point in points}
+    assert by_text["Traditional SaaS vs AI-as-a-service > flywheel model"]["context_status"] == "suggested"
+    assert "SaaS" in (by_text["Traditional SaaS vs AI-as-a-service > flywheel model"]["context"] or "")
+    assert by_text["vertical AI"]["context_status"] == "suggested"
+    assert by_text["case study: Matsuo Lab"]["context_status"] == "suggested"
+    assert by_text["Take notes during the lecture."]["context"] is None
+    assert by_text["Take notes during the lecture."]["context_status"] == "none"
 
 
 @pytest.mark.ambient
 def test_text_patch_reextracts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    replies = [json.dumps(VALID_JSON), json.dumps(PASTA_JSON)]
-    monkeypatch.setattr(
-        "app.extract.chat",
-        lambda messages, json_mode=False: replies.pop(0),
-    )
-    polished = [
-        RephrasedNote(title="B+ trees", body=SAMPLE_NOTE.strip()),
-        RephrasedNote(title="Pasta", body="Salt the pasta water before boiling."),
-    ]
-    monkeypatch.setattr(
-        "app.ambient.rephrase_jot",
-        lambda text, title="": polished.pop(0),
-    )
+    monkeypatch.setattr("app.extract.chat", _scripted_chat([VALID_JSON, PASTA_JSON]))
     monkeypatch.setattr("app.index.embed_texts", _fake_embed)
     client = _client(tmp_path, monkeypatch)
     created = client.post(
@@ -193,10 +243,8 @@ def test_text_patch_reextracts(
     body = client.get(f"/notes/{created['id']}").json()
     assert body["extract_status"] == "done"
     assert body["title"] == "Pasta"
-    assert "Salt the pasta water before boiling" in body["raw_text"]
+    assert body["raw_text"] == "Salt the pasta water."
     assert body["topics"][0]["title"] == "Boiling pasta"
-    assert replies == []
-    assert polished == []
 
 @pytest.mark.ambient
 def test_suggestions_prefer_embeddings(

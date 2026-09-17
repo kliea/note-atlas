@@ -11,6 +11,8 @@ NoteKind = Literal["typed", "voice", "ink", "clip"]
 NOTE_KINDS: tuple[NoteKind, ...] = ("typed", "voice", "ink", "clip")
 ExtractStatus = Literal["idle", "pending", "running", "done", "error"]
 EXTRACT_STATUSES: tuple[ExtractStatus, ...] = ("idle", "pending", "running", "done", "error")
+ContextStatus = Literal["none", "suggested", "accepted", "dismissed"]
+CONTEXT_STATUSES: tuple[ContextStatus, ...] = ("none", "suggested", "accepted", "dismissed")
 
 
 class NoteCreate(BaseModel):
@@ -40,6 +42,20 @@ class Point(BaseModel):
     topic_id: int
     text: str
     order_idx: int
+    context: str | None = None
+    context_status: ContextStatus = "none"
+
+
+class PointPatch(BaseModel):
+    """Partial update for a point's additive AI context. Never touches `text`."""
+
+    context: str | None = Field(default=None, min_length=1)
+    context_status: Literal["accepted", "dismissed"] | None = None
+
+    @field_validator("context", mode="before")
+    @classmethod
+    def _strip_context(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
 
 
 class Tag(BaseModel):
@@ -129,6 +145,22 @@ class ExtractedTopic(BaseModel):
 
 class ExtractionPayload(BaseModel):
     topics: list[ExtractedTopic] = Field(min_length=1)
+
+
+class PointAddition(BaseModel):
+    """LLM context attached to an existing point. Never includes replacement text."""
+
+    point_id: int
+    context: str = Field(min_length=1)
+
+    @field_validator("context", mode="before")
+    @classmethod
+    def _strip_context(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class EnrichmentPayload(BaseModel):
+    additions: list[PointAddition] = Field(default_factory=list)
 
 
 class RephrasedNote(BaseModel):

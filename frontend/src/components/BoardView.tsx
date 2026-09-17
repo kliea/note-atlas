@@ -30,12 +30,13 @@ import {
   fetchSuggestions,
   importNoteFile,
   patchNote,
+  patchPoint,
   streamAsk,
 } from "../api";
 import { useCommandStack } from "../hooks/useCommandStack";
 import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion";
 import { joinNoteText, splitNoteText } from "../noteText";
-import type { Citation, Connection, LinkSuggestion, NoteCreate, NoteDetail } from "../types";
+import type { Citation, Connection, LinkSuggestion, NoteCreate, NoteDetail, Point as NotePoint } from "../types";
 import { BoardAskBar } from "./BoardAskBar";
 import { BoardShortcuts } from "./BoardShortcuts";
 import {
@@ -45,12 +46,8 @@ import {
   type BoardGhostEdge as BoardGhostEdgeType,
   type BoardStringEdge as BoardStringEdgeType,
 } from "./edges/BoardStringEdge";
-import {
-  BoardSessionContext,
-  BoardNoteNode,
-  type BoardNoteNode as BoardNoteNodeType,
-  type BoardSession,
-} from "./nodes/BoardNoteNode";
+import { BoardNoteNode, type BoardNoteNode as BoardNoteNodeType } from "./nodes/BoardNoteNode";
+import { BoardSessionContext, type BoardSession } from "./nodes/BoardSession";
 
 const nodeTypes = {
   boardNote: BoardNoteNode,
@@ -661,6 +658,56 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
     [dropGhost],
   );
 
+  const replacePoint = useCallback(
+    (noteId: number, point: NotePoint) => {
+      setNodes((current) =>
+        current.map((node) => {
+          if (node.data.noteId !== noteId) {
+            return node;
+          }
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              topics: node.data.topics.map((topic) => ({
+                ...topic,
+                points: topic.points.map((item) => (item.id === point.id ? point : item)),
+              })),
+            },
+          };
+        }),
+      );
+    },
+    [setNodes],
+  );
+
+  const acceptPointContext = useCallback(
+    (noteId: number, pointId: number) => {
+      void patchPoint(pointId, { context_status: "accepted" })
+        .then((point) => replacePoint(noteId, point))
+        .catch(() => setError("Could not accept that context."));
+    },
+    [replacePoint],
+  );
+
+  const dismissPointContext = useCallback(
+    (noteId: number, pointId: number) => {
+      void patchPoint(pointId, { context_status: "dismissed" })
+        .then((point) => replacePoint(noteId, point))
+        .catch(() => setError("Could not dismiss that context."));
+    },
+    [replacePoint],
+  );
+
+  const savePointContext = useCallback(
+    (noteId: number, pointId: number, context: string) => {
+      void patchPoint(pointId, { context })
+        .then((point) => replacePoint(noteId, point))
+        .catch(() => setError("Could not update that context."));
+    },
+    [replacePoint],
+  );
+
   useEffect(() => {
     if (!thinkingKey) {
       return;
@@ -1134,8 +1181,21 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
       cutConnection,
       acceptSuggestion,
       dismissSuggestion,
+      acceptPointContext,
+      dismissPointContext,
+      savePointContext,
     }),
-    [acceptSuggestion, commitEdit, cutConnection, dismissSuggestion, startEdit, updateText],
+    [
+      acceptPointContext,
+      acceptSuggestion,
+      commitEdit,
+      cutConnection,
+      dismissPointContext,
+      dismissSuggestion,
+      savePointContext,
+      startEdit,
+      updateText,
+    ],
   );
 
   const linkedIds = useMemo(() => linkedIdsFor(nodes, edges), [edges, nodes]);

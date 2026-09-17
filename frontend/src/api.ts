@@ -10,6 +10,8 @@ import type {
   NoteDetail,
   NotePatch,
   NoteSummary,
+  Point,
+  PointPatch,
 } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
@@ -66,6 +68,14 @@ export function createNote(payload: NoteCreate): Promise<NoteDetail> {
 
 export function patchNote(id: number, payload: NotePatch): Promise<NoteDetail> {
   return requestJson<NoteDetail>(`/notes/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function patchPoint(id: number, payload: PointPatch): Promise<Point> {
+  return requestJson<Point>(`/points/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
