@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import re
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
+
+NoteKind = Literal["typed", "voice", "ink", "clip"]
+NOTE_KINDS: tuple[NoteKind, ...] = ("typed", "voice", "ink", "clip")
 
 
 class NoteCreate(BaseModel):
@@ -18,6 +22,12 @@ class NoteSummary(BaseModel):
     title: str
     source: str
     created_at: str
+    x: float = 240.0
+    y: float = 180.0
+    z: int = 0
+    color: str | None = None
+    kind: NoteKind = "typed"
+    pinned: bool = False
 
 
 class Point(BaseModel):
@@ -45,6 +55,33 @@ class Topic(BaseModel):
 class NoteDetail(NoteSummary):
     raw_text: str
     topics: list[Topic] = Field(default_factory=list)
+    ink_json: str | None = None
+
+
+class NotePatch(BaseModel):
+    """Partial spatial/style update. Unset fields are left unchanged."""
+
+    x: float | None = None
+    y: float | None = None
+    z: int | None = None
+    color: str | None = None
+    kind: NoteKind | None = None
+    pinned: bool | None = None
+    ink_json: str | None = None
+
+
+class ConnectionCreate(BaseModel):
+    from_note_id: int
+    to_note_id: int
+    kind: str = "link"
+
+
+class Connection(BaseModel):
+    id: int
+    from_note_id: int
+    to_note_id: int
+    kind: str
+    created_at: str
 
 
 class ExtractedTopic(BaseModel):

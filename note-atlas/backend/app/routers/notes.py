@@ -9,12 +9,19 @@ from fastapi.responses import JSONResponse, PlainTextResponse, Response
 
 from pydantic import ValidationError
 
-from app.db import create_note, delete_chunks_for_note, get_note, list_notes, replace_note_extraction
+from app.db import (
+    create_note,
+    delete_chunks_for_note,
+    get_note,
+    list_notes,
+    patch_note,
+    replace_note_extraction,
+)
 from app.export import bundle_from_note, extracted_topics, note_to_markdown, parse_markdown
 from app.extract import ExtractionError, extract_topics
 from app.index import index_note
 from app.llm import LlmError
-from app.models import MarkdownImport, NoteBundle, NoteCreate, NoteDetail, NoteSummary
+from app.models import MarkdownImport, NoteBundle, NoteCreate, NoteDetail, NotePatch, NoteSummary
 
 router = APIRouter(prefix="/notes", tags=["notes"])
 
@@ -94,6 +101,14 @@ def get_note_by_id(note_id: int) -> NoteDetail:
     if note is None:
         raise HTTPException(status_code=404, detail="note not found")
     return note
+
+
+@router.patch("/{note_id}", response_model=NoteDetail)
+def patch_note_by_id(note_id: int, payload: NotePatch) -> NoteDetail:
+    updated = patch_note(note_id, payload)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="note not found")
+    return updated
 
 
 @router.post("/{note_id}/extract", response_model=NoteDetail)

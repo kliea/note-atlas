@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import load_env
 from app.db import init_db
-from app.routers import ask, health, llm, notes, search
+from app.routers import ask, connections, health, llm, notes, search
 
 load_env()
 
@@ -39,5 +39,6 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(llm.router)
 app.include_router(notes.router)
+app.include_router(connections.router)
 app.include_router(search.router)
 app.include_router(ask.router)

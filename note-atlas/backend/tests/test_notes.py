@@ -40,7 +40,17 @@ def test_create_list_and_reopen_note(
         "raw_text",
         "created_at",
         "topics",
+        "x",
+        "y",
+        "z",
+        "color",
+        "kind",
+        "pinned",
+        "ink_json",
     }
+    assert (body["x"], body["y"]) != (0, 0)
+    assert body["kind"] == "typed"
+    assert body["pinned"] is False
 
     listed = client.get("/notes")
     assert listed.status_code == 200
@@ -49,7 +59,19 @@ def test_create_list_and_reopen_note(
     assert summaries[0]["id"] == body["id"]
     assert summaries[0]["title"] == payload["title"]
     assert "raw_text" not in summaries[0]
-    assert set(summaries[0].keys()) == {"id", "title", "source", "created_at"}
+    assert "ink_json" not in summaries[0]
+    assert set(summaries[0].keys()) == {
+        "id",
+        "title",
+        "source",
+        "created_at",
+        "x",
+        "y",
+        "z",
+        "color",
+        "kind",
+        "pinned",
+    }
 
     reopened = client.get(f"/notes/{body['id']}")
     assert reopened.status_code == 200
