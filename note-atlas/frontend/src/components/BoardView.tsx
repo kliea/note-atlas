@@ -1,21 +1,41 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import {
   Background,
+  ConnectionMode,
   Controls,
+  Position,
   ReactFlow,
   ReactFlowProvider,
+  useEdgesState,
   useNodesState,
   useReactFlow,
   type ColorMode,
+  type Connection as RFConnection,
+  type EdgeTypes,
+  type IsValidConnection,
   type NodeTypes,
   type OnNodeDrag,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { createNote, deleteNote, fetchNote, fetchNotes, patchNote } from "../api";
+import {
+  createConnection,
+  createNote,
+  deleteConnection,
+  deleteNote,
+  fetchConnections,
+  fetchNote,
+  fetchNotes,
+  patchNote,
+} from "../api";
 import { useCommandStack } from "../hooks/useCommandStack";
 import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion";
 import { joinNoteText, splitNoteText } from "../noteText";
-import type { NoteCreate, NoteDetail } from "../types";
+import type { Connection, NoteCreate, NoteDetail } from "../types";
+import {
+  BoardConnectionLine,
+  BoardStringEdge,
+  type BoardStringEdge as BoardStringEdgeType,
+} from "./edges/BoardStringEdge";
 import {
   BoardSessionContext,
   BoardNoteNode,
@@ -26,6 +46,10 @@ import {
 const nodeTypes = {
   boardNote: BoardNoteNode,
 } satisfies NodeTypes;
+
+const edgeTypes = {
+  boardString: BoardStringEdge,
+} satisfies EdgeTypes;
 
 type Point = { x: number; y: number; z: number };
 
@@ -53,6 +77,63 @@ function toNode(note: NoteDetail, editing = false): BoardNoteNodeType {
   };
 }
 
+function closestSide(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+): Position {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  if (Math.abs(dx) > Math.abs(dy)) {
+    return dx >= 0 ? Position.Right : Position.Left;
+  }
+  return dy >= 0 ? Position.Bottom : Position.Top;
+}
+
+function toEdge(
+  conn: Connection,
+  nodeList: BoardNoteNodeType[],
+  handles?: { sourceHandle?: string | null; targetHandle?: string | null },
+): BoardStringEdgeType {
+  const source = nodeList.find((node) => node.data.noteId === conn.from_note_id);
+  const target = nodeList.find((node) => node.data.noteId === conn.to_note_id);
+  const sourceHandle =
+    handles?.sourceHandle ??
+    (source && target ? `out-${closestSide(source.position, target.position)}` : "out-right");
+  const targetHandle =
+    handles?.targetHandle ??
+    (source && target ? closestSide(target.position, source.position) : Position.Left);
+  return {
+    id: `conn-${conn.id}`,
+    type: "boardString",
+    source: String(conn.from_note_id),
+    target: String(conn.to_note_id),
+    sourceHandle,
+    targetHandle,
+    data: { connectionId: conn.id },
+    interactionWidth: 24,
+  };
+}
+
+function linkedIdsFor(
+  nodes: BoardNoteNodeType[],
+  edges: BoardStringEdgeType[],
+): Set<string> | null {
+  const selected = new Set(
+    nodes.filter((node) => node.selected && node.data.noteId > 0).map((node) => node.id),
+  );
+  if (selected.size === 0) {
+    return null;
+  }
+  const linked = new Set(selected);
+  for (const edge of edges) {
+    if (selected.has(edge.source) || selected.has(edge.target)) {
+      linked.add(edge.source);
+      linked.add(edge.target);
+    }
+  }
+  return linked;
+}
+
 function isTypingTarget(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLElement &&
@@ -66,6 +147,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
   const reduceMotion = usePrefersReducedMotion();
   const { fitView, screenToFlowPosition } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState<BoardNoteNodeType>([]);
+  const [edges, setEdges] = useEdgesState<BoardStringEdgeType>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const origins = useRef(new Map<string, Point>());
@@ -77,23 +159,39 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
   const committing = useRef(new Set<string>());
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
+  const edgesRef = useRef(edges);
+  edgesRef.current = edges;
   const { push, undo, redo, discard, canUndo, canRedo } = useCommandStack();
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    void fetchNotes()
-      .then((listed) => Promise.all(listed.map((note) => fetchNote(note.id))))
-      .then((details) => {
-        if (!cancelled) {
-          setNodes(details.map((note) => toNode(note)));
+    void Promise.all([
+      fetchNotes().then((listed) => Promise.all(listed.map((note) => fetchNote(note.id)))),
+      fetchConnections(),
+    ])
+      .then(([details, connections]) => {
+        if (cancelled) {
+          return;
         }
+        const nextNodes = details.map((note) => toNode(note));
+        setNodes(nextNodes);
+        const ids = new Set(nextNodes.map((node) => node.id));
+        setEdges(
+          connections
+            .filter(
+              (conn) =>
+                ids.has(String(conn.from_note_id)) && ids.has(String(conn.to_note_id)),
+            )
+            .map((conn) => toEdge(conn, nextNodes)),
+        );
       })
       .catch(() => {
         if (!cancelled) {
           setError("Could not load notes for the board.");
           setNodes([]);
+          setEdges([]);
         }
       })
       .finally(() => {
@@ -104,7 +202,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
     return () => {
       cancelled = true;
     };
-  }, [setNodes]);
+  }, [setEdges, setNodes]);
 
   useEffect(() => {
     if (loading || fitted.current) {
@@ -234,13 +332,17 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
 
   const removeByNoteId = useCallback(
     (noteId: number, nodeId?: string) => {
+      const dropIds = new Set([String(noteId), nodeId].filter(Boolean) as string[]);
       setNodes((current) =>
         current.filter(
           (node) => node.data.noteId !== noteId && node.id !== nodeId,
         ),
       );
+      setEdges((current) =>
+        current.filter((edge) => !dropIds.has(edge.source) && !dropIds.has(edge.target)),
+      );
     },
-    [setNodes],
+    [setEdges, setNodes],
   );
 
   const addOrReplace = useCallback(
@@ -273,6 +375,136 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
       });
     },
     [addOrReplace, push, removeByNoteId],
+  );
+
+  const pairLinked = useCallback((sourceId: string, targetId: string): boolean => {
+    return edgesRef.current.some(
+      (edge) =>
+        (edge.source === sourceId && edge.target === targetId) ||
+        (edge.source === targetId && edge.target === sourceId),
+    );
+  }, []);
+
+  const persistLink = useCallback(
+    (fromId: number, toId: number, handles?: { sourceHandle?: string | null; targetHandle?: string | null }) => {
+      const source = String(fromId);
+      const target = String(toId);
+      if (fromId < 1 || toId < 1 || fromId === toId || pairLinked(source, target)) {
+        return;
+      }
+      const payload = { from_note_id: fromId, to_note_id: toId };
+      const pendingId = `pending-${fromId}-${toId}`;
+      const pending = toEdge(
+        { id: -1, from_note_id: fromId, to_note_id: toId, kind: "link", created_at: "" },
+        nodesRef.current,
+        handles,
+      );
+      setEdges((current) => [...current, { ...pending, id: pendingId }]);
+      void createConnection(payload)
+        .then((created) => {
+          setEdges((current) =>
+            current.map((edge) =>
+              edge.id === pendingId ? toEdge(created, nodesRef.current, handles) : edge,
+            ),
+          );
+          let currentId = created.id;
+          push({
+            label: "link",
+            undo: async () => {
+              await deleteConnection(currentId);
+              setEdges((current) =>
+                current.filter((edge) => edge.data?.connectionId !== currentId),
+              );
+            },
+            redo: async () => {
+              const again = await createConnection(payload);
+              currentId = again.id;
+              setEdges((current) => {
+                const without = current.filter(
+                  (edge) =>
+                    !(
+                      (edge.source === source && edge.target === target) ||
+                      (edge.source === target && edge.target === source)
+                    ),
+                );
+                return [...without, toEdge(again, nodesRef.current)];
+              });
+            },
+          });
+        })
+        .catch(() => {
+          setEdges((current) => current.filter((edge) => edge.id !== pendingId));
+          setError("Could not connect those notes.");
+        });
+    },
+    [pairLinked, push, setEdges],
+  );
+
+  const cutConnection = useCallback(
+    (connectionId: number) => {
+      const edge = edgesRef.current.find((item) => item.data?.connectionId === connectionId);
+      if (!edge || connectionId < 1) {
+        return;
+      }
+      const payload = {
+        from_note_id: Number(edge.source),
+        to_note_id: Number(edge.target),
+      };
+      void deleteConnection(connectionId)
+        .then(() => {
+          setEdges((current) =>
+            current.filter((item) => item.data?.connectionId !== connectionId),
+          );
+          let currentId = connectionId;
+          push({
+            label: "cut",
+            undo: async () => {
+              const restored = await createConnection(payload);
+              currentId = restored.id;
+              setEdges((current) => [...current, toEdge(restored, nodesRef.current)]);
+            },
+            redo: async () => {
+              await deleteConnection(currentId);
+              setEdges((current) =>
+                current.filter((item) => item.data?.connectionId !== currentId),
+              );
+            },
+          });
+        })
+        .catch(() => {
+          setError("Could not cut that connection.");
+        });
+    },
+    [push, setEdges],
+  );
+
+  const onConnect = useCallback(
+    (connection: RFConnection) => {
+      const fromId = Number(connection.source);
+      const toId = Number(connection.target);
+      persistLink(fromId, toId, {
+        sourceHandle: connection.sourceHandle,
+        targetHandle: connection.targetHandle,
+      });
+    },
+    [persistLink],
+  );
+
+  const isValidConnection = useCallback<IsValidConnection>(
+    (connection) => {
+      const source = connection.source;
+      const target = connection.target;
+      if (!source || !target || source === target) {
+        return false;
+      }
+      const fromId = Number(source);
+      const toId = Number(target);
+      if (fromId < 1 || toId < 1) {
+        return false;
+      }
+      return !pairLinked(source, target);
+    },
+    [pairLinked],
   );
 
   const updateText = useCallback(
@@ -521,8 +753,36 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
   );
 
   const session = useMemo<BoardSession>(
-    () => ({ startEdit, updateText, commitEdit }),
-    [commitEdit, startEdit, updateText],
+    () => ({ startEdit, updateText, commitEdit, cutConnection }),
+    [commitEdit, cutConnection, startEdit, updateText],
+  );
+
+  const linkedIds = useMemo(() => linkedIdsFor(nodes, edges), [edges, nodes]);
+  const displayNodes = useMemo(
+    () =>
+      linkedIds
+        ? nodes.map((node) => ({
+            ...node,
+            className: linkedIds.has(node.id) ? "board-linked" : "board-dimmed",
+          }))
+        : nodes.map((node) => ({ ...node, className: undefined })),
+    [linkedIds, nodes],
+  );
+  const displayEdges = useMemo(
+    () =>
+      linkedIds
+        ? edges.map((edge) => ({
+            ...edge,
+            className:
+              linkedIds.has(edge.source) &&
+              linkedIds.has(edge.target) &&
+              (nodes.some((node) => node.selected && node.id === edge.source) ||
+                nodes.some((node) => node.selected && node.id === edge.target))
+                ? "board-linked"
+                : "board-dimmed",
+          }))
+        : edges.map((edge) => ({ ...edge, className: undefined })),
+    [edges, linkedIds, nodes],
   );
 
   const onPaneClick = useCallback(
@@ -641,7 +901,17 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
   return (
     <BoardSessionContext.Provider value={session}>
       <div className="board-toolbar">
-        <p className="repo-count">{loading ? "Loading board…" : `${nodes.length} notes`}</p>
+        <p className="repo-count">
+          {loading
+            ? "Loading board…"
+            : `${nodes.length} notes${
+                edges.length === 0
+                  ? ""
+                  : edges.length === 1
+                    ? " · 1 link"
+                    : ` · ${edges.length} links`
+              }`}
+        </p>
         <div className="board-toolbar-actions">
           <button type="button" className="btn btn-ghost" disabled={!canUndo} onClick={() => void undo()}>
             Undo
@@ -653,7 +923,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
       </div>
       {error ? <p className="form-error">{error}</p> : null}
       <div
-        className="board-canvas"
+        className={linkedIds ? "board-canvas has-selection" : "board-canvas"}
         role="application"
         aria-label="Board canvas"
         onPointerMove={(event) => {
@@ -661,19 +931,27 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
         }}
       >
         <ReactFlow
-          nodes={nodes}
+          nodes={displayNodes}
+          edges={displayEdges}
           onNodesChange={onNodesChange}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           onNodeDragStart={onNodeDragStart}
           onNodeDragStop={onNodeDragStop}
+          onConnect={onConnect}
+          isValidConnection={isValidConnection}
+          connectionMode={ConnectionMode.Loose}
+          connectOnClick
+          connectionLineComponent={BoardConnectionLine}
           onPaneClick={onPaneClick}
           minZoom={0.2}
           maxZoom={1.8}
           defaultViewport={{ x: 0, y: 0, zoom: 1 }}
           nodesDraggable
           nodeDragThreshold={1}
-          nodesConnectable={false}
+          nodesConnectable
           elementsSelectable
+          edgesFocusable={false}
           panOnDrag
           panOnScroll
           zoomOnScroll={!reduceMotion}
@@ -682,7 +960,6 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
           deleteKeyCode={null}
           proOptions={{ hideAttribution: true }}
           colorMode={colorMode}
-          onlyRenderVisibleElements
         >
           <Background gap={24} />
           <Controls showInteractive={false} />

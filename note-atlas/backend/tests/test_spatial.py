@@ -131,6 +131,25 @@ def test_connections_unordered_unique_and_delete(
     assert client.delete(f"/connections/{conn_body['id']}").status_code == 404
 
 
+def test_deleting_note_cascades_connections(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    left = client.post(
+        "/notes", json={"title": "A", "source": "", "raw_text": "a"}
+    ).json()
+    right = client.post(
+        "/notes", json={"title": "B", "source": "", "raw_text": "b"}
+    ).json()
+    created = client.post(
+        "/connections",
+        json={"from_note_id": left["id"], "to_note_id": right["id"]},
+    )
+    assert created.status_code == 201
+    assert client.delete(f"/notes/{left['id']}").status_code == 204
+    assert client.get("/connections").json() == []
+
+
 def _note_snapshot(db_path: Path) -> tuple[list[tuple[int, str, str, str]], int]:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
