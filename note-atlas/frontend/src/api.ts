@@ -64,10 +64,6 @@ export function createNote(payload: NoteCreate): Promise<NoteDetail> {
   });
 }
 
-export function extractNote(id: number): Promise<NoteDetail> {
-  return requestJson<NoteDetail>(`/notes/${id}/extract`, { method: "POST" });
-}
-
 export function patchNote(id: number, payload: NotePatch): Promise<NoteDetail> {
   return requestJson<NoteDetail>(`/notes/${id}`, {
     method: "PATCH",

@@ -23,10 +23,12 @@ import {
   createNote,
   deleteConnection,
   deleteNote,
+  downloadNoteExport,
   fetchConnections,
   fetchNote,
   fetchNotes,
   fetchSuggestions,
+  importNoteFile,
   patchNote,
   streamAsk,
 } from "../api";
@@ -35,6 +37,7 @@ import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion";
 import { joinNoteText, splitNoteText } from "../noteText";
 import type { Citation, Connection, LinkSuggestion, NoteCreate, NoteDetail } from "../types";
 import { BoardAskBar } from "./BoardAskBar";
+import { BoardShortcuts } from "./BoardShortcuts";
 import {
   BoardConnectionLine,
   BoardGhostEdge,
@@ -67,6 +70,11 @@ type AskSession = {
 
 const NOTE_CARD_WIDTH = 240;
 const NOTE_CARD_HEIGHT = 120;
+const SNAP = 24;
+
+function snapCoord(value: number): number {
+  return Math.round(value / SNAP) * SNAP;
+}
 
 type BoardViewProps = {
   colorMode: ColorMode;
@@ -260,7 +268,9 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
   const dismissedPairs = useRef(new Set<string>());
   const suggestedFor = useRef(new Set<number>());
   const askingRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [askSession, setAskSession] = useState<AskSession | null>(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const { push, undo, redo, discard, canUndo, canRedo } = useCommandStack();
 
   useEffect(() => {
@@ -327,7 +337,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
       return;
     }
     const frame = requestAnimationFrame(() => {
-      void fitView({ padding: 0.25, duration: reduceMotion ? 0 : 200 });
+      void fitView({ padding: 0.22, duration: reduceMotion ? 0 : 280, maxZoom: 1.15 });
     });
     return () => cancelAnimationFrame(frame);
   }, [fitView, loading, nodes.length, reduceMotion]);
@@ -423,8 +433,8 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
         return;
       }
       const to: Point = {
-        x: node.position.x,
-        y: node.position.y,
+        x: snapCoord(node.position.x),
+        y: snapCoord(node.position.y),
         z: liftedZ.current.get(node.id) ?? node.data.z,
       };
       liftedZ.current.delete(node.id);
@@ -1225,7 +1235,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
       if (isTypingTarget(event.target)) {
         return;
       }
-      const step = event.shiftKey ? 80 : 24;
+      const step = event.shiftKey ? SNAP * 4 : SNAP;
       const selected = nodesRef.current.find((node) => node.selected && !node.data.editing);
       if (!selected || selected.data.noteId < 0) {
         return;
@@ -1250,8 +1260,8 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
         z: selected.data.z,
       };
       moveNote(selected.data.noteId, from, {
-        x: from.x + dx,
-        y: from.y + dy,
+        x: snapCoord(from.x + dx),
+        y: snapCoord(from.y + dy),
         z: from.z,
       });
     }
@@ -1288,18 +1298,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
   }, [moveNote, persistPasted, redo, screenToFlowPosition, undo]);
 
   useEffect(() => {
-    function onAskKey(event: KeyboardEvent): void {
-      if (isTypingTarget(event.target)) {
-        return;
-      }
-      if (event.key === "Escape" && askSession && !askingRef.current) {
-        setAskSession(null);
-        return;
-      }
-      if (event.key !== "?" && event.key !== "/") {
-        return;
-      }
-      event.preventDefault();
+    function openAskPrompt(): void {
       if (askingRef.current) {
         return;
       }
@@ -1317,9 +1316,115 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
         noteIds: scopedNoteIds(nodesRef.current),
       });
     }
-    window.addEventListener("keydown", onAskKey);
-    return () => window.removeEventListener("keydown", onAskKey);
-  }, [askSession, screenToFlowPosition]);
+
+    function onBoardKey(event: KeyboardEvent): void {
+      if (event.key === "Escape") {
+        if (shortcutsOpen) {
+          event.preventDefault();
+          setShortcutsOpen(false);
+          return;
+        }
+        if (askSession && !askingRef.current && !isTypingTarget(event.target)) {
+          event.preventDefault();
+          setAskSession(null);
+        }
+        return;
+      }
+      if (isTypingTarget(event.target)) {
+        return;
+      }
+      if (event.key === "?") {
+        event.preventDefault();
+        setShortcutsOpen((open) => !open);
+        return;
+      }
+      if (shortcutsOpen) {
+        return;
+      }
+      if (event.key === "/") {
+        event.preventDefault();
+        openAskPrompt();
+        return;
+      }
+      if (event.key === "n" || event.key === "N") {
+        event.preventDefault();
+        spawnAtViewCenter();
+        return;
+      }
+      if (event.key === "Enter") {
+        const selected = nodesRef.current.find(
+          (node) => node.selected && !node.data.editing && node.data.noteId !== 0,
+        );
+        if (!selected) {
+          return;
+        }
+        event.preventDefault();
+        startEdit(selected.id);
+        return;
+      }
+      if (event.key === "l" || event.key === "L") {
+        const selected = nodesRef.current.filter(
+          (node) => node.selected && node.data.noteId > 0,
+        );
+        event.preventDefault();
+        if (selected.length !== 2) {
+          setError("Select two notes, then press L to link them.");
+          return;
+        }
+        persistLink(selected[0].data.noteId, selected[1].data.noteId);
+        return;
+      }
+      if (event.key === "Backspace" || event.key === "Delete") {
+        const selected = nodesRef.current.find(
+          (node) => node.selected && node.data.noteId > 0 && !node.data.editing,
+        );
+        if (!selected) {
+          return;
+        }
+        event.preventDefault();
+        const snapshot: NoteCreate = {
+          title: selected.data.title,
+          source: selected.data.source,
+          raw_text: selected.data.rawText || selected.data.title,
+          x: selected.position.x,
+          y: selected.position.y,
+        };
+        const noteId = selected.data.noteId;
+        void deleteNote(noteId)
+          .then(() => {
+            removeByNoteId(noteId);
+            let currentId = noteId;
+            push({
+              label: "delete",
+              undo: async () => {
+                const restored = await createNote(snapshot);
+                currentId = restored.id;
+                addOrReplace(restored);
+              },
+              redo: async () => {
+                await deleteNote(currentId);
+                removeByNoteId(currentId);
+              },
+            });
+          })
+          .catch(() => {
+            setError("Could not delete that note.");
+          });
+      }
+    }
+    window.addEventListener("keydown", onBoardKey);
+    return () => window.removeEventListener("keydown", onBoardKey);
+  }, [
+    addOrReplace,
+    askSession,
+    persistLink,
+    push,
+    removeByNoteId,
+    screenToFlowPosition,
+    shortcutsOpen,
+    spawnAtViewCenter,
+    startEdit,
+  ]);
 
   return (
     <BoardSessionContext.Provider value={session}>
@@ -1335,23 +1440,94 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
                     : ` · ${edges.length} links`
               }`}
         </p>
-        <p className="board-hint">Shift-drag to lasso · ? to ask</p>
+        <p className="board-hint">N new · / ask · ? shortcuts</p>
         <div className="board-toolbar-actions">
-          <button type="button" className="btn btn-ghost" disabled={!canUndo} onClick={() => void undo()}>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => setShortcutsOpen(true)}
+            aria-keyshortcuts="?"
+          >
+            Shortcuts
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            Import
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={!nodes.some((node) => node.selected && node.data.noteId > 0)}
+            onClick={() => {
+              const selected = nodes.find((node) => node.selected && node.data.noteId > 0);
+              if (!selected) {
+                return;
+              }
+              void downloadNoteExport(selected.data.noteId, "json").catch(() => {
+                setError("Export failed.");
+              });
+            }}
+          >
+            Export
+          </button>
+          <button type="button" className="btn btn-ghost" disabled={!canUndo} onClick={() => void undo()} aria-keyshortcuts="Control+Z Meta+Z">
             Undo
           </button>
-          <button type="button" className="btn btn-ghost" disabled={!canRedo} onClick={() => void redo()}>
+          <button type="button" className="btn btn-ghost" disabled={!canRedo} onClick={() => void redo()} aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z">
             Redo
           </button>
         </div>
       </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json,.md,.markdown,application/json,text/markdown"
+        hidden
+        aria-label="Import a note file"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (!file) {
+            return;
+          }
+          void importNoteFile(file)
+            .then((imported) => {
+              addOrReplace(imported);
+            })
+            .catch((err: unknown) => {
+              setError(err instanceof Error ? err.message : "Import failed.");
+            });
+        }}
+      />
       {error ? <p className="form-error">{error}</p> : null}
       <div
         className={linkedIds ? "board-canvas has-selection" : "board-canvas"}
         role="application"
         aria-label="Board canvas"
+        aria-keyshortcuts="N / ? L Enter"
+        tabIndex={0}
         onPointerMove={(event) => {
           lastPointer.current = { x: event.clientX, y: event.clientY };
+        }}
+        onDragOver={(event) => {
+          event.preventDefault();
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          const file = event.dataTransfer.files[0];
+          if (!file) {
+            return;
+          }
+          void importNoteFile(file)
+            .then((imported) => {
+              addOrReplace(imported);
+            })
+            .catch((err: unknown) => {
+              setError(err instanceof Error ? err.message : "Import failed.");
+            });
         }}
       >
         <ReactFlow
@@ -1372,17 +1548,22 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
           selectionOnDrag={false}
           selectionMode={SelectionMode.Partial}
           selectionKeyCode="Shift"
+          snapToGrid
+          snapGrid={[SNAP, SNAP]}
           minZoom={0.2}
           maxZoom={1.8}
           defaultViewport={{ x: 0, y: 0, zoom: 1 }}
           nodesDraggable
           nodeDragThreshold={1}
           nodesConnectable
+          nodesFocusable
           elementsSelectable
           edgesFocusable={false}
           panOnDrag
           panOnScroll
-          zoomOnScroll={!reduceMotion}
+          autoPanOnNodeDrag={!reduceMotion}
+          autoPanOnConnect={!reduceMotion}
+          zoomOnScroll
           zoomOnPinch
           zoomOnDoubleClick={false}
           deleteKeyCode={null}
@@ -1400,6 +1581,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
             onClose={() => setAskSession(null)}
           />
         ) : null}
+        {shortcutsOpen ? <BoardShortcuts onClose={() => setShortcutsOpen(false)} /> : null}
         <button
           type="button"
           className="board-pad"
@@ -1411,7 +1593,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
         </button>
         {!loading && nodes.length === 0 ? (
           <p className="board-placeholder board-placeholder-overlay">
-            Double-click empty space to write a note.
+            Double-click empty space or press N to write a note. Press ? for shortcuts.
           </p>
         ) : null}
       </div>
