@@ -6,8 +6,8 @@ The MiniLM model is loaded once per process and reused. Tests inject a fake
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Sequence
-from functools import lru_cache
 from typing import Any
 
 from app.config import embed_model
@@ -15,12 +15,22 @@ from app.config import embed_model
 # all-MiniLM-L6-v2 output size. sqlite-vec column dim must match.
 EMBEDDING_DIM = 384
 
+_model: Any | None = None
+_model_lock = threading.Lock()
 
-@lru_cache(maxsize=1)
+
 def _load_model() -> Any:
-    from sentence_transformers import SentenceTransformer
+    """Load the embedder once. A lock prevents concurrent first-load crashes."""
+    global _model
+    if _model is not None:
+        return _model
+    with _model_lock:
+        if _model is not None:
+            return _model
+        from sentence_transformers import SentenceTransformer
 
-    return SentenceTransformer(embed_model())
+        _model = SentenceTransformer(embed_model())
+        return _model
 
 
 def embed_text(text: str) -> list[float]:
@@ -31,7 +41,8 @@ def embed_texts(texts: Sequence[str]) -> list[list[float]]:
     if len(texts) == 0:
         return []
     model = _load_model()
-    vectors = model.encode(list(texts), normalize_embeddings=True)
+    with _model_lock:
+        vectors = model.encode(list(texts), normalize_embeddings=True)
     return [row.tolist() for row in vectors]
 
 
