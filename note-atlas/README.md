@@ -9,7 +9,7 @@ The app opens on the **board**. There is no Capture / Repository / Map / Ask chr
 - **Write** — double-click empty space, press `N`, tear off **New note**, or paste. First line is the title.
 - **Extract** — happens in the background after capture or a meaningful edit. The card shimmers, then gains points and tags. No Extract button.
 - **Link** — drag a handle, or select two notes and press `L`. Cut the bead on a string to disconnect. Suggested links appear as dashed ghosts; accept or dismiss.
-- **Ask** — Shift-drag a cluster, then `/`. With nothing lassoed, ask spans the whole board. The answer pins as a note with strings to cited sources. Off-topic questions are declined, not invented.
+- **Ask** — Shift-drag a cluster, then `/`. Tab to a note, Space to select, Shift-Space to add more, then `/`. With nothing selected, ask spans the whole board. The answer pins as a note with strings to cited sources. Off-topic questions are declined, not invented.
 - **Undo** — ⌘Z / Ctrl+Z, depth 50.
 
 ## Gestures and shortcuts
@@ -19,12 +19,15 @@ The app opens on the **board**. There is no Capture / Repository / Map / Ask chr
 | Double-click canvas | New note |
 | `N` | New note at view center |
 | Enter | Edit selected note |
+| `Tab` | Move focus between notes and controls |
+| `Space` | Select the focused note |
+| `Shift-Space` | Add or remove the focused note from the selection |
 | Esc | Close ask, shortcuts, or finish editing |
 | Arrow keys | Nudge selected note (Shift = larger step, snapped to 24px) |
 | Shift-drag | Lasso notes |
-| Shift-click | Add to selection |
+| ⌘/Ctrl-click | Add to selection |
 | `L` | Link two selected notes |
-| `/` | Ask (scoped to the lasso if any) |
+| `/` | Ask (scoped to the selection if any) |
 | `?` | Shortcuts overlay |
 | Backspace / Delete | Delete selected note |
 | ⌘Z / Ctrl+Z | Undo |
@@ -32,7 +35,7 @@ The app opens on the **board**. There is no Capture / Repository / Map / Ask chr
 | Paste | Drop clipboard text as a note |
 | Drag a `.json` / `.md` file onto the board | Import |
 
-Visible focus uses a 2px accent ring (`:focus-visible`). `prefers-reduced-motion: reduce` turns fit/auto-pan into instant moves; CSS animations collapse.
+Visible focus uses a 2px accent ring (`:focus-visible`). `prefers-reduced-motion: reduce` turns fit/auto-pan into instant moves; CSS animations collapse. The canvas keeps `@xyflow/react` because the board still uses it; the retired Capture/Map/Ask/Repository screens and their CSS are gone.
 
 ## Prerequisites
 
@@ -124,7 +127,8 @@ Replace the Capture/Map/Ask chrome with a spatial board.
 Notes live on a canvas: one-gesture capture, background extraction,
 drag-to-link strings, lasso-scoped Ask, and keyboard shortcuts.
 Schema stays additive (v3 space, v4 extract_status). Old view hash
-routing is gone; the app opens on the board.
+routing is gone; the app opens on the board. React Flow stays because
+the board canvas uses it.
 ```
 
 Do not squash if you still want the R1–R9 commits for archaeology; in that case merge with `--no-ff`.
