@@ -27,7 +27,7 @@ def post_ask(body: AskRequest) -> StreamingResponse:
 
     def events() -> Iterator[str]:
         try:
-            plan = plan_ask(question, k=body.k)
+            plan = plan_ask(question, k=body.k, note_ids=body.note_ids)
             yield _sse(
                 "meta",
                 {

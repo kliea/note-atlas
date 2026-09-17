@@ -87,3 +87,21 @@ def test_stream_answer_uses_model_when_grounded() -> None:
     )
     tokens = list(stream_answer(plan, generate=lambda _m: iter(["High ", "fanout."])))
     assert "".join(tokens) == "High fanout."
+
+
+def test_plan_ask_note_ids_drops_outside_hits(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.rag.get_note", lambda note_id: _note() if note_id == 3 else None)
+
+    def retrieve(_question: str, _k: int) -> list[SearchHit]:
+        return [_hit(score=0.9, note_id=3), _hit(score=0.95, note_id=9, topic_id=4)]
+
+    scoped = plan_ask("fanout?", note_ids=[3], retrieve=retrieve)
+    assert scoped.grounded is True
+    assert [item.note_id for item in scoped.citations] == [3]
+
+    def only_outside(_question: str, _k: int) -> list[SearchHit]:
+        return [_hit(score=0.95, note_id=9, topic_id=4)]
+
+    declined = plan_ask("fanout?", note_ids=[3], retrieve=only_outside)
+    assert declined.grounded is False
+    assert declined.citations == []

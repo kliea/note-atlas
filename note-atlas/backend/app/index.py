@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 
-from app.db import clear_chunk_index, get_note, list_note_ids, replace_note_chunks, search_chunk_rows
+from app.db import (
+    chunk_count,
+    clear_chunk_index,
+    get_note,
+    list_note_ids,
+    replace_note_chunks,
+    search_chunk_rows,
+)
 from app.embed import embed_texts, serialize_embedding
 from app.models import NoteDetail, SearchHit
 
@@ -46,12 +53,25 @@ def reindex_all(embed: EmbedFn | None = None) -> dict[str, int]:
     return {"notes": len(note_ids), "chunks": chunks}
 
 
-def search(query: str, k: int = 5, embed: EmbedFn | None = None) -> list[SearchHit]:
+def search(
+    query: str,
+    k: int = 5,
+    embed: EmbedFn | None = None,
+    note_ids: Sequence[int] | None = None,
+) -> list[SearchHit]:
+    total = chunk_count()
+    if total == 0:
+        return []
+    fetch_k = total if note_ids else min(k, total)
     encode = embed or embed_texts
     vector = encode([query])[0]
-    rows = search_chunk_rows(serialize_embedding(vector), k)
+    rows = search_chunk_rows(serialize_embedding(vector), fetch_k)
     hits: list[SearchHit] = []
+    allowed = set(note_ids) if note_ids else None
     for row in rows:
+        note_id = int(row["note_id"])
+        if allowed is not None and note_id not in allowed:
+            continue
         distance = float(row["distance"])
         # cosine distance ≈ 1 - similarity for L2-normalized MiniLM vectors
         score = max(0.0, min(1.0, 1.0 - distance))
@@ -59,12 +79,14 @@ def search(query: str, k: int = 5, embed: EmbedFn | None = None) -> list[SearchH
         hits.append(
             SearchHit(
                 chunk_id=int(row["id"]),
-                note_id=int(row["note_id"]),
+                note_id=note_id,
                 topic_id=int(topic_id) if topic_id is not None else None,
                 text=str(row["text"]),
                 score=score,
             )
         )
+        if len(hits) >= k:
+            break
     return hits
 
 

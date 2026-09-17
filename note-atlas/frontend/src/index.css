@@ -488,6 +488,13 @@ button.tag {
   padding-bottom: 0.4rem;
 }
 
+.board-hint {
+  margin: 0;
+  flex: 1;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
 .board-toolbar-actions {
   display: flex;
   gap: 0.35rem;
@@ -503,9 +510,9 @@ button.tag {
   background: var(--input-bg);
 }
 
-.board-canvas .react-flow {
-  width: 100%;
-  height: 100%;
+.react-flow__selection {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border: 1px dashed var(--accent);
 }
 
 .board-placeholder {
@@ -546,6 +553,50 @@ button.tag {
 .board-pad:focus-visible {
   color: var(--fg);
   border-color: var(--accent);
+}
+
+.board-ask {
+  position: absolute;
+  z-index: 12;
+  width: 16rem;
+  padding: 0.55rem 0.6rem 0.5rem;
+  border: 1px solid var(--accent);
+  border-radius: 0.5rem;
+  background: var(--panel);
+  box-shadow: 0.2rem 0.2rem 0 var(--input-bg);
+  transform: translate(-50%, 0);
+}
+
+.board-ask-scope {
+  margin: 0 0 0.3rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.board-ask-input {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0.3rem 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: 0.3rem;
+  resize: none;
+  background: var(--input-bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.board-ask-actions {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+
+.board-note.answer {
+  border-style: solid;
 }
 
 .board-note.editing {

@@ -71,6 +71,7 @@ export function BoardNoteNode({ id, data, selected }: NodeProps<BoardNoteNode>) 
     selected ? "selected" : "",
     data.editing ? "editing" : "",
     thinking ? "thinking" : "",
+    data.source === "ask" ? "answer" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -127,10 +128,14 @@ export function BoardNoteNode({ id, data, selected }: NodeProps<BoardNoteNode>) 
       }}
     >
       <BoardHandles connectable={connectable} title={data.title || "note"} />
-      <p className="map-node-kicker">{thinking ? "Thinking" : "Note"}</p>
+      <p className="map-node-kicker">
+        {thinking ? "Thinking" : data.source === "ask" ? "Answer" : "Note"}
+      </p>
       <h3>{first || data.title || "Untitled"}</h3>
       {rest.length > 0 ? (
-        <p className="board-note-preview">{rest.join(" ").slice(0, 140)}</p>
+        <p className="board-note-preview">
+          {rest.join(" ").slice(0, data.source === "ask" ? 480 : 140)}
+        </p>
       ) : (
         <p className="map-node-source">{data.source || "no source"}</p>
       )}
