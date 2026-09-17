@@ -33,6 +33,14 @@ def test_create_list_and_reopen_note(
     assert body["raw_text"] == payload["raw_text"]
     assert body["id"] >= 1
     assert body["topics"] == []
+    assert set(body.keys()) == {
+        "id",
+        "title",
+        "source",
+        "raw_text",
+        "created_at",
+        "topics",
+    }
 
     listed = client.get("/notes")
     assert listed.status_code == 200
@@ -41,6 +49,7 @@ def test_create_list_and_reopen_note(
     assert summaries[0]["id"] == body["id"]
     assert summaries[0]["title"] == payload["title"]
     assert "raw_text" not in summaries[0]
+    assert set(summaries[0].keys()) == {"id", "title", "source", "created_at"}
 
     reopened = client.get(f"/notes/{body['id']}")
     assert reopened.status_code == 200

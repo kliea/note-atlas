@@ -110,9 +110,13 @@ def test_extract_endpoint_persists_and_replaces(
     assert first.status_code == 200
     body = first.json()
     assert len(body["topics"]) == 2
-    assert body["topics"][0]["title"] == "B+ tree structure"
-    assert body["topics"][0]["points"][0]["text"] == "Leaves hold keys and record pointers"
-    assert [tag["tag"] for tag in body["topics"][0]["tags"]] == ["b-tree", "indexes"]
+    topic = body["topics"][0]
+    assert set(topic.keys()) >= {"id", "note_id", "title", "order_idx", "points", "tags"}
+    assert topic["title"] == "B+ tree structure"
+    assert topic["points"][0]["text"] == "Leaves hold keys and record pointers"
+    assert set(topic["points"][0].keys()) >= {"id", "topic_id", "text", "order_idx"}
+    assert [tag["tag"] for tag in topic["tags"]] == ["b-tree", "indexes"]
+    assert set(topic["tags"][0].keys()) >= {"id", "topic_id", "tag"}
 
     second = client.post(f"/notes/{note_id}/extract")
     assert second.status_code == 200

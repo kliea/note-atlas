@@ -10,19 +10,21 @@ import {
   importNoteFile,
 } from "./api";
 import { AskView } from "./components/AskView";
+import { BoardView } from "./components/BoardView";
 import { CaptureForm } from "./components/CaptureForm";
 import { MapView } from "./components/MapView";
 import { NoteList } from "./components/NoteList";
 import { Repository } from "./components/Repository";
 import { StatusPills } from "./components/StatusPills";
 import { ThemeToggle } from "./components/ThemeToggle";
-import { ViewNav, type AppView } from "./components/ViewNav";
+import { ViewNav } from "./components/ViewNav";
+import { useHashView } from "./hooks/useHashView";
 import { useTheme } from "./hooks/useTheme";
 import type { Citation, NoteSummary, PillState, Topic } from "./types";
 
 export default function App() {
   const { pref, resolved, cycle } = useTheme();
-  const [view, setView] = useState<AppView>("capture");
+  const [view, setView] = useHashView();
   const [backend, setBackend] = useState<PillState>("loading");
   const [model, setModel] = useState<PillState>("loading");
   const [modelName, setModelName] = useState<string | null>(null);
@@ -253,6 +255,7 @@ export default function App() {
         />
       ) : null}
       {view === "ask" ? <AskView onSelectSource={handleAskSource} /> : null}
+      {view === "board" ? <BoardView /> : null}
     </div>
   );
 }
