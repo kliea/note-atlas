@@ -205,14 +205,19 @@ export async function streamAsk(
   question: string,
   handlers: AskHandlers,
   signal?: AbortSignal,
+  noteIds?: number[],
 ): Promise<void> {
+  const payload: { question: string; note_ids?: number[] } = { question };
+  if (noteIds && noteIds.length > 0) {
+    payload.note_ids = noteIds;
+  }
   const response = await fetch(`${API_BASE}/ask`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Accept: "text/event-stream",
     },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify(payload),
     signal,
   });
   if (!response.ok || response.body === null) {

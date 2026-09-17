@@ -142,6 +142,18 @@ class SearchHit(BaseModel):
 class AskRequest(BaseModel):
     question: str = Field(min_length=1)
     k: int = Field(default=5, ge=1, le=20)
+    note_ids: list[int] | None = None
+
+    @field_validator("note_ids")
+    @classmethod
+    def _positive_unique_ids(cls, value: list[int] | None) -> list[int] | None:
+        if not value:
+            return None
+        cleaned: list[int] = []
+        for item in value:
+            if item >= 1 and item not in cleaned:
+                cleaned.append(item)
+        return cleaned or None
 
 
 class Citation(BaseModel):

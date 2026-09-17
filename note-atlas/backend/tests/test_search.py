@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.db import init_db, replace_note_extraction
 from app.embed import EMBEDDING_DIM
-from app.index import index_note, reindex_all
+from app.index import index_note, reindex_all, search
 from app.main import app
 from app.models import ExtractedTopic
 
@@ -95,6 +95,57 @@ def test_search_ranks_relevant_chunk_first(
     assert "tree" in top or "leaf" in top
     assert hits[0]["note_id"] == trees["id"]
     assert hits[0]["topic_id"] is not None or "b+ trees" in top
+
+
+def test_search_note_ids_keeps_only_scoped_notes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    trees = client.post(
+        "/notes",
+        json={
+            "title": "B+ trees",
+            "source": "lecture",
+            "raw_text": "Leaf nodes store keys. Internal nodes route searches.",
+        },
+    ).json()
+    pasta = client.post(
+        "/notes",
+        json={
+            "title": "Pasta recipes",
+            "source": "kitchen",
+            "raw_text": "Boil water and salt the pasta water.",
+        },
+    ).json()
+    replace_note_extraction(
+        trees["id"],
+        [
+            ExtractedTopic(
+                title="B+ tree leaves",
+                points=["Leaf nodes store keys and record pointers"],
+                tags=["b-tree"],
+            )
+        ],
+    )
+    replace_note_extraction(
+        pasta["id"],
+        [
+            ExtractedTopic(
+                title="Boiling pasta",
+                points=["Salt the water before the pasta goes in"],
+                tags=["cooking"],
+            )
+        ],
+    )
+    index_note(trees["id"], embed=_fake_embed)
+    index_note(pasta["id"], embed=_fake_embed)
+
+    trees_only = search("pasta recipe", k=5, embed=_fake_embed, note_ids=[trees["id"]])
+    assert trees_only
+    assert all(hit.note_id == trees["id"] for hit in trees_only)
+    pasta_only = search("b+ tree leaf nodes", k=5, embed=_fake_embed, note_ids=[pasta["id"]])
+    assert pasta_only
+    assert all(hit.note_id == pasta["id"] for hit in pasta_only)
 
 
 def test_reindex_rebuilds_cleanly(

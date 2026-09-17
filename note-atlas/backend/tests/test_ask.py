@@ -44,7 +44,7 @@ def test_ask_streams_grounded_sse(
             )
         ],
     )
-    monkeypatch.setattr("app.routers.ask.plan_ask", lambda question, k=5: plan)
+    monkeypatch.setattr("app.routers.ask.plan_ask", lambda question, k=5, note_ids=None: plan)
 
     def fake_stream(_plan: AskPlan) -> Iterator[str]:
         yield "High "
@@ -65,13 +65,36 @@ def test_ask_streams_grounded_sse(
     assert "event: token" in body
 
 
+def test_ask_forwards_note_ids(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    seen: dict[str, object] = {}
+
+    def fake_plan(question: str, k: int = 5, note_ids: list[int] | None = None) -> AskPlan:
+        seen["question"] = question
+        seen["k"] = k
+        seen["note_ids"] = note_ids
+        return AskPlan(question=question, grounded=False, citations=[], context_hits=[])
+
+    monkeypatch.setattr("app.routers.ask.plan_ask", fake_plan)
+    response = client.post(
+        "/ask",
+        json={"question": "Why fanout?", "note_ids": [3, 7, 7, -1], "k": 8},
+    )
+    assert response.status_code == 200
+    assert seen["note_ids"] == [3, 7]
+    assert seen["k"] == 8
+    assert DECLINE_TEXT in response.text
+
+
 def test_ask_streams_decline_when_ungrounded(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = _client(tmp_path, monkeypatch)
     monkeypatch.setattr(
         "app.routers.ask.plan_ask",
-        lambda question, k=5: AskPlan(
+        lambda question, k=5, note_ids=None: AskPlan(
             question=question, grounded=False, citations=[], context_hits=[]
         ),
     )

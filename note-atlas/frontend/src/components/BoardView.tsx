@@ -6,6 +6,7 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
+  SelectionMode,
   useEdgesState,
   useNodesState,
   useReactFlow,
@@ -27,11 +28,13 @@ import {
   fetchNotes,
   fetchSuggestions,
   patchNote,
+  streamAsk,
 } from "../api";
 import { useCommandStack } from "../hooks/useCommandStack";
 import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion";
 import { joinNoteText, splitNoteText } from "../noteText";
-import type { Connection, LinkSuggestion, NoteCreate, NoteDetail } from "../types";
+import type { Citation, Connection, LinkSuggestion, NoteCreate, NoteDetail } from "../types";
+import { BoardAskBar } from "./BoardAskBar";
 import {
   BoardConnectionLine,
   BoardGhostEdge,
@@ -57,6 +60,14 @@ const edgeTypes = {
 
 type Point = { x: number; y: number; z: number };
 
+type AskSession = {
+  origin: { x: number; y: number };
+  noteIds: number[];
+};
+
+const NOTE_CARD_WIDTH = 240;
+const NOTE_CARD_HEIGHT = 120;
+
 type BoardViewProps = {
   colorMode: ColorMode;
 };
@@ -80,6 +91,49 @@ function toNode(note: NoteDetail, editing = false): BoardNoteNodeType {
       topics: note.topics ?? [],
     },
     draggable: !editing,
+  };
+}
+
+function scopedNoteIds(nodes: BoardNoteNodeType[]): number[] {
+  return nodes
+    .filter(
+      (node) => node.selected && node.data.noteId > 0 && node.data.source !== "ask",
+    )
+    .map((node) => node.data.noteId);
+}
+
+function selectionOrigin(selected: BoardNoteNodeType[]): { x: number; y: number } {
+  const left = Math.min(...selected.map((node) => node.position.x));
+  const right = Math.max(...selected.map((node) => node.position.x + NOTE_CARD_WIDTH));
+  const bottom = Math.max(...selected.map((node) => node.position.y + NOTE_CARD_HEIGHT));
+  return { x: (left + right) / 2 - NOTE_CARD_WIDTH / 2, y: bottom + 28 };
+}
+
+function makeAskNode(
+  noteId: number,
+  question: string,
+  origin: { x: number; y: number },
+  z: number,
+  answer = "",
+): BoardNoteNodeType {
+  return {
+    id: String(noteId),
+    type: "boardNote",
+    position: origin,
+    zIndex: z,
+    data: {
+      title: question,
+      source: "ask",
+      rawText: answer,
+      noteId,
+      color: null,
+      z,
+      text: joinNoteText(question, answer),
+      editing: false,
+      extractStatus: "idle",
+      topics: [],
+    },
+    draggable: noteId > 0,
   };
 }
 
@@ -205,6 +259,8 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
   edgesRef.current = edges;
   const dismissedPairs = useRef(new Set<string>());
   const suggestedFor = useRef(new Set<number>());
+  const askingRef = useRef(false);
+  const [askSession, setAskSession] = useState<AskSession | null>(null);
   const { push, undo, redo, discard, canUndo, canRedo } = useCommandStack();
 
   useEffect(() => {
@@ -955,6 +1011,105 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
     [addOrReplace, pushCreateCommand],
   );
 
+  const runBoardAsk = useCallback(
+    (question: string, session: AskSession) => {
+      const trimmed = question.trim();
+      if (!trimmed || askingRef.current) {
+        return;
+      }
+      setAskSession(null);
+      askingRef.current = true;
+      const draftId = draftSeq.current;
+      draftSeq.current -= 1;
+      const maxZ = Math.max(0, ...nodesRef.current.map((node) => node.data.z)) + 1;
+      setNodes((current) => [...current, makeAskNode(draftId, trimmed, session.origin, maxZ)]);
+      let answer = "";
+      let citations: Citation[] = [];
+      void streamAsk(
+        trimmed,
+        {
+          onMeta: (meta) => {
+            citations = meta.citations;
+          },
+          onToken: (piece) => {
+            answer += piece;
+            setNodes((current) =>
+              current.map((node) =>
+                node.data.noteId === draftId
+                  ? {
+                      ...node,
+                      data: {
+                        ...node.data,
+                        rawText: answer,
+                        text: joinNoteText(trimmed, answer),
+                      },
+                    }
+                  : node,
+              ),
+            );
+          },
+          onError: (detail) => {
+            setError(detail);
+          },
+        },
+        undefined,
+        session.noteIds,
+      )
+        .then(async () => {
+          const body = answer.trim();
+          if (!body) {
+            removeByNoteId(draftId);
+            return;
+          }
+          const payload: NoteCreate = {
+            title: trimmed.slice(0, 120),
+            source: "ask",
+            raw_text: body,
+            x: session.origin.x,
+            y: session.origin.y,
+          };
+          const created = await createNote(payload);
+          const pinned = await patchNote(created.id, { pinned: true, z: maxZ }).catch(
+            () => created,
+          );
+          removeByNoteId(draftId);
+          addOrReplace(pinned);
+          const cited = [
+            ...new Set(citations.map((item) => item.note_id).filter((id) => id !== pinned.id)),
+          ];
+          for (const id of cited) {
+            persistLink(pinned.id, id);
+          }
+          let currentId = pinned.id;
+          push({
+            label: "ask",
+            undo: async () => {
+              await deleteNote(currentId);
+              removeByNoteId(currentId);
+            },
+            redo: async () => {
+              const again = await createNote(payload);
+              currentId = again.id;
+              const restored = await patchNote(currentId, { pinned: true, z: maxZ }).catch(
+                () => again,
+              );
+              addOrReplace(restored);
+              for (const id of cited) {
+                persistLink(currentId, id);
+              }
+            },
+          });
+        })
+        .catch((err: unknown) => {
+          setError(err instanceof Error ? err.message : "Ask failed.");
+        })
+        .finally(() => {
+          askingRef.current = false;
+        });
+    },
+    [addOrReplace, persistLink, push, removeByNoteId, setNodes],
+  );
+
   const session = useMemo<BoardSession>(
     () => ({
       startEdit,
@@ -1015,6 +1170,22 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
     },
     [screenToFlowPosition, spawnDraft],
   );
+
+  const onSelectionEnd = useCallback(() => {
+    if (askingRef.current) {
+      return;
+    }
+    const selected = nodesRef.current.filter(
+      (node) => node.selected && node.data.noteId > 0 && node.data.source !== "ask",
+    );
+    if (selected.length === 0) {
+      return;
+    }
+    setAskSession({
+      origin: selectionOrigin(selected),
+      noteIds: scopedNoteIds(nodesRef.current),
+    });
+  }, []);
 
   const spawnAtViewCenter = useCallback(() => {
     const canvas = document.querySelector(".board-canvas");
@@ -1116,6 +1287,40 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
     };
   }, [moveNote, persistPasted, redo, screenToFlowPosition, undo]);
 
+  useEffect(() => {
+    function onAskKey(event: KeyboardEvent): void {
+      if (isTypingTarget(event.target)) {
+        return;
+      }
+      if (event.key === "Escape" && askSession && !askingRef.current) {
+        setAskSession(null);
+        return;
+      }
+      if (event.key !== "?" && event.key !== "/") {
+        return;
+      }
+      event.preventDefault();
+      if (askingRef.current) {
+        return;
+      }
+      const selected = nodesRef.current.filter(
+        (node) => node.selected && node.data.noteId > 0 && node.data.source !== "ask",
+      );
+      let origin = { x: 240, y: 180 };
+      if (selected.length > 0) {
+        origin = selectionOrigin(selected);
+      } else if (lastPointer.current) {
+        origin = screenToFlowPosition(lastPointer.current);
+      }
+      setAskSession({
+        origin,
+        noteIds: scopedNoteIds(nodesRef.current),
+      });
+    }
+    window.addEventListener("keydown", onAskKey);
+    return () => window.removeEventListener("keydown", onAskKey);
+  }, [askSession, screenToFlowPosition]);
+
   return (
     <BoardSessionContext.Provider value={session}>
       <div className="board-toolbar">
@@ -1130,6 +1335,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
                     : ` · ${edges.length} links`
               }`}
         </p>
+        <p className="board-hint">Shift-drag to lasso · ? to ask</p>
         <div className="board-toolbar-actions">
           <button type="button" className="btn btn-ghost" disabled={!canUndo} onClick={() => void undo()}>
             Undo
@@ -1162,6 +1368,10 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
           connectOnClick
           connectionLineComponent={BoardConnectionLine}
           onPaneClick={onPaneClick}
+          onSelectionEnd={onSelectionEnd}
+          selectionOnDrag={false}
+          selectionMode={SelectionMode.Partial}
+          selectionKeyCode="Shift"
           minZoom={0.2}
           maxZoom={1.8}
           defaultViewport={{ x: 0, y: 0, zoom: 1 }}
@@ -1182,6 +1392,14 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
           <Background gap={24} />
           <Controls showInteractive={false} />
         </ReactFlow>
+        {askSession ? (
+          <BoardAskBar
+            origin={askSession.origin}
+            noteIds={askSession.noteIds}
+            onSubmit={(question) => runBoardAsk(question, askSession)}
+            onClose={() => setAskSession(null)}
+          />
+        ) : null}
         <button
           type="button"
           className="board-pad"
