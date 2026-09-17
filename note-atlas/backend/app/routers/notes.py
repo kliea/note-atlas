@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from app.db import (
     create_note,
     delete_chunks_for_note,
+    delete_note,
     get_note,
     list_notes,
     patch_note,
@@ -109,6 +110,12 @@ def patch_note_by_id(note_id: int, payload: NotePatch) -> NoteDetail:
     if updated is None:
         raise HTTPException(status_code=404, detail="note not found")
     return updated
+
+
+@router.delete("/{note_id}", status_code=204)
+def delete_note_by_id(note_id: int) -> None:
+    if not delete_note(note_id):
+        raise HTTPException(status_code=404, detail="note not found")
 
 
 @router.post("/{note_id}/extract", response_model=NoteDetail)

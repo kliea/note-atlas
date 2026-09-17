@@ -18,6 +18,8 @@ export type NoteCreate = {
   title: string;
   source: string;
   raw_text: string;
+  x?: number;
+  y?: number;
 };
 
 export type NoteSummary = {
@@ -41,6 +43,9 @@ export type NotePatch = {
   kind?: NoteKind;
   pinned?: boolean;
   ink_json?: string | null;
+  title?: string;
+  source?: string;
+  raw_text?: string;
 };
 
 export type Connection = {

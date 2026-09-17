@@ -523,6 +523,61 @@ button.tag {
   pointer-events: none;
 }
 
+.board-pad {
+  position: absolute;
+  right: 0.85rem;
+  bottom: 0.85rem;
+  z-index: 5;
+  width: 7.2rem;
+  min-height: 4.4rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px dashed var(--line);
+  border-radius: 0.4rem;
+  background: var(--panel);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+  box-shadow: 0.2rem 0.2rem 0 var(--input-bg), 0.35rem 0.35rem 0 var(--line);
+  cursor: pointer;
+}
+
+.board-pad:hover,
+.board-pad:focus-visible {
+  color: var(--fg);
+  border-color: var(--accent);
+}
+
+.board-note.editing {
+  padding: 0.35rem;
+}
+
+.board-note-editor {
+  display: block;
+  width: 100%;
+  min-height: 4.5rem;
+  margin: 0;
+  padding: 0.35rem 0.4rem;
+  border: 0;
+  resize: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+
+.board-note-editor:focus {
+  outline: none;
+}
+
+.board-note-preview {
+  margin: 0.3rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
 .map-toggle {
   display: flex;
   align-items: center;

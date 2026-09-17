@@ -71,6 +71,13 @@ export function patchNote(id: number, payload: NotePatch): Promise<NoteDetail> {
   });
 }
 
+export async function deleteNote(id: number): Promise<void> {
+  const response = await fetch(`${API_BASE}/notes/${id}`, { method: "DELETE" });
+  if (!response.ok) {
+    throw new Error(`delete note failed: ${response.status}`);
+  }
+}
+
 export function fetchConnections(): Promise<Connection[]> {
   return requestJson<Connection[]>("/connections");
 }
