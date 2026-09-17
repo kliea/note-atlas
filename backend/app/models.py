@@ -131,6 +131,18 @@ class ExtractionPayload(BaseModel):
     topics: list[ExtractedTopic] = Field(min_length=1)
 
 
+class RephrasedNote(BaseModel):
+    """LLM rewrite of a terse jot into a clearer note."""
+
+    title: str = Field(min_length=1)
+    body: str = Field(min_length=1)
+
+    @field_validator("title", "body", mode="before")
+    @classmethod
+    def _strip_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
 class SearchHit(BaseModel):
     chunk_id: int
     note_id: int
