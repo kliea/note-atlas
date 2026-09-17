@@ -1,12 +1,15 @@
 const SHORTCUTS: { keys: string; action: string }[] = [
   { keys: "N", action: "New note at the view center" },
   { keys: "Enter", action: "Edit the selected note" },
+  { keys: "Tab", action: "Move focus between notes and controls" },
+  { keys: "Space", action: "Select the focused note" },
+  { keys: "Shift-Space", action: "Add or remove the focused note from the selection" },
   { keys: "Esc", action: "Close ask, shortcuts, or the editor" },
   { keys: "Arrow keys", action: "Nudge the selected note (Shift for a larger step)" },
   { keys: "Shift-drag", action: "Lasso notes" },
-  { keys: "Shift-click", action: "Add a note to the selection" },
+  { keys: "⌘/Ctrl-click", action: "Add a note to the selection" },
   { keys: "L", action: "Link two selected notes" },
-  { keys: "/", action: "Ask, scoped to the lasso if any" },
+  { keys: "/", action: "Ask, scoped to the selection if any" },
   { keys: "?", action: "Show this shortcuts list" },
   { keys: "Backspace", action: "Delete the selected note" },
   { keys: "⌘Z / Ctrl+Z", action: "Undo" },
@@ -39,7 +42,12 @@ export function BoardShortcuts({ onClose }: BoardShortcutsProps) {
         aria-labelledby="board-shortcuts-title"
         onClick={(event) => event.stopPropagation()}
       >
-        <h2 id="board-shortcuts-title">Shortcuts</h2>
+        <div className="board-shortcuts-head">
+          <h2 id="board-shortcuts-title">Shortcuts</h2>
+          <button type="button" className="btn" onClick={onClose} autoFocus>
+            Close
+          </button>
+        </div>
         <dl>
           {SHORTCUTS.map((item) => (
             <div key={item.keys} className="board-shortcuts-row">
@@ -50,9 +58,6 @@ export function BoardShortcuts({ onClose }: BoardShortcutsProps) {
             </div>
           ))}
         </dl>
-        <button type="button" className="btn" onClick={onClose} autoFocus>
-          Close
-        </button>
       </div>
     </div>
   );

@@ -1370,6 +1370,27 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
         startEdit(selected.id);
         return;
       }
+      if (event.key === " " || event.code === "Space") {
+        const focused =
+          event.target instanceof Element
+            ? event.target.closest(".react-flow__node")
+            : null;
+        const id = focused?.getAttribute("data-id");
+        if (!id) {
+          return;
+        }
+        event.preventDefault();
+        setNodes((current) =>
+          current.map((node) =>
+            node.id === id
+              ? { ...node, selected: event.shiftKey ? !node.selected : true }
+              : event.shiftKey
+                ? node
+                : { ...node, selected: false },
+          ),
+        );
+        return;
+      }
       if (event.key === "l" || event.key === "L") {
         const selected = nodesRef.current.filter(
           (node) => node.selected && node.data.noteId > 0,
@@ -1430,6 +1451,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
     push,
     removeByNoteId,
     screenToFlowPosition,
+    setNodes,
     shortcutsOpen,
     spawnAtViewCenter,
     startEdit,
@@ -1438,7 +1460,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
   return (
     <BoardSessionContext.Provider value={session}>
       <div className="board-toolbar">
-        <p className="repo-count">
+        <p className="board-count">
           {loading
             ? "Loading board…"
             : `${nodes.length} notes${
@@ -1455,6 +1477,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
             type="button"
             className="btn btn-ghost"
             onClick={() => setShortcutsOpen(true)}
+            aria-label="Keyboard shortcuts"
             aria-keyshortcuts="?"
           >
             Shortcuts
@@ -1463,6 +1486,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
             type="button"
             className="btn btn-ghost"
             onClick={() => fileInputRef.current?.click()}
+            aria-label="Import a note file"
           >
             Import
           </button>
@@ -1470,6 +1494,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
             type="button"
             className="btn btn-ghost"
             disabled={!nodes.some((node) => node.selected && node.data.noteId > 0)}
+            aria-label="Export the selected note"
             onClick={() => {
               const selected = nodes.find((node) => node.selected && node.data.noteId > 0);
               if (!selected) {
@@ -1482,10 +1507,10 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
           >
             Export
           </button>
-          <button type="button" className="btn btn-ghost" disabled={!canUndo} onClick={() => void undo()} aria-keyshortcuts="Control+Z Meta+Z">
+          <button type="button" className="btn btn-ghost" disabled={!canUndo} onClick={() => void undo()} aria-label="Undo" aria-keyshortcuts="Control+Z Meta+Z">
             Undo
           </button>
-          <button type="button" className="btn btn-ghost" disabled={!canRedo} onClick={() => void redo()} aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z">
+          <button type="button" className="btn btn-ghost" disabled={!canRedo} onClick={() => void redo()} aria-label="Redo" aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z">
             Redo
           </button>
         </div>
@@ -1516,7 +1541,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
         className={linkedIds ? "board-canvas has-selection" : "board-canvas"}
         role="application"
         aria-label="Board canvas"
-        aria-keyshortcuts="N / ? L Enter"
+        aria-keyshortcuts="N / ? L Enter Space"
         tabIndex={0}
         onPointerMove={(event) => {
           lastPointer.current = { x: event.clientX, y: event.clientY };

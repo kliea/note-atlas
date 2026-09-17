@@ -17,7 +17,7 @@ function label(pref: ThemePref): string {
 
 export function ThemeToggle({ pref, onCycle }: ThemeToggleProps) {
   return (
-    <button type="button" className="nav-btn theme-toggle" onClick={onCycle}>
+    <button type="button" className="nav-btn theme-toggle" onClick={onCycle} aria-label={label(pref)}>
       {label(pref)}
     </button>
   );
