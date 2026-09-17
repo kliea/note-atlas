@@ -11,7 +11,7 @@ from app.db import init_db, replace_note_extraction
 from app.embed import EMBEDDING_DIM
 from app.index import index_note
 from app.main import app
-from app.models import ExtractedTopic
+from app.models import ExtractedTopic, RephrasedNote
 
 SAMPLE_NOTE = """
 Lecture: B+ trees in database indexes
@@ -91,6 +91,16 @@ def test_create_extracts_in_background(
         "app.extract.chat",
         lambda messages, json_mode=False: replies.pop(0),
     )
+    monkeypatch.setattr(
+        "app.ambient.rephrase_jot",
+        lambda text, title="": RephrasedNote(
+            title="B+ trees",
+            body=(
+                "Leaf nodes store keys plus pointers to records.\n"
+                "Internal nodes only route the search."
+            ),
+        ),
+    )
     monkeypatch.setattr("app.index.embed_texts", _fake_embed)
     client = _client(tmp_path, monkeypatch)
     created = client.post(
@@ -105,10 +115,48 @@ def test_create_extracts_in_background(
     assert created.json()["extract_status"] == "pending"
     body = client.get(f"/notes/{created.json()['id']}").json()
     assert body["extract_status"] == "done"
+    assert body["title"] == "B+ trees"
+    assert "Leaf nodes store keys" in body["raw_text"]
     assert len(body["topics"]) == 1
     assert body["topics"][0]["title"] == "B+ tree structure"
     assert [tag["tag"] for tag in body["topics"][0]["tags"]] == ["b-tree", "indexes"]
     assert replies == []
+
+
+@pytest.mark.ambient
+def test_create_rephrases_jot_before_topics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    replies = [json.dumps(VALID_JSON)]
+    monkeypatch.setattr(
+        "app.extract.chat",
+        lambda messages, json_mode=False: replies.pop(0),
+    )
+    monkeypatch.setattr(
+        "app.ambient.rephrase_jot",
+        lambda text, title="": RephrasedNote(
+            title="B+ tree range scans",
+            body=(
+                "Linked leaves let you walk keys in order without hashing. "
+                "Fanout still beats binary trees on disk I/O."
+            ),
+        ),
+    )
+    monkeypatch.setattr("app.index.embed_texts", _fake_embed)
+    client = _client(tmp_path, monkeypatch)
+    created = client.post(
+        "/notes",
+        json={
+            "title": "b+ scan",
+            "source": "",
+            "raw_text": "linked leaves, high fanout, less disk io",
+        },
+    ).json()
+    body = client.get(f"/notes/{created['id']}").json()
+    assert body["extract_status"] == "done"
+    assert body["title"] == "B+ tree range scans"
+    assert "Linked leaves" in body["raw_text"]
+    assert body["topics"][0]["title"] == "B+ tree structure"
 
 
 @pytest.mark.ambient
@@ -119,6 +167,14 @@ def test_text_patch_reextracts(
     monkeypatch.setattr(
         "app.extract.chat",
         lambda messages, json_mode=False: replies.pop(0),
+    )
+    polished = [
+        RephrasedNote(title="B+ trees", body=SAMPLE_NOTE.strip()),
+        RephrasedNote(title="Pasta", body="Salt the pasta water before boiling."),
+    ]
+    monkeypatch.setattr(
+        "app.ambient.rephrase_jot",
+        lambda text, title="": polished.pop(0),
     )
     monkeypatch.setattr("app.index.embed_texts", _fake_embed)
     client = _client(tmp_path, monkeypatch)
@@ -136,9 +192,11 @@ def test_text_patch_reextracts(
     assert patched.json()["extract_status"] == "pending"
     body = client.get(f"/notes/{created['id']}").json()
     assert body["extract_status"] == "done"
+    assert body["title"] == "Pasta"
+    assert "Salt the pasta water before boiling" in body["raw_text"]
     assert body["topics"][0]["title"] == "Boiling pasta"
     assert replies == []
-
+    assert polished == []
 
 @pytest.mark.ambient
 def test_suggestions_prefer_embeddings(

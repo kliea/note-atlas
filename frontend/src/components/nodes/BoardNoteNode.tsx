@@ -130,7 +130,7 @@ export function BoardNoteNode({ id, data, selected }: NodeProps<BoardNoteNode>) 
     >
       <BoardHandles connectable={connectable} title={data.title || "note"} />
       <p className="map-node-kicker">
-        {thinking ? "Thinking" : data.source === "ask" ? "Answer" : "Note"}
+        {thinking ? "Polishing" : data.source === "ask" ? "Answer" : "Note"}
       </p>
       <h3>{first || data.title || "Untitled"}</h3>
       {rest.length > 0 ? (
