@@ -62,6 +62,7 @@ def test_ask_streams_grounded_sse(
     assert "High " in body
     assert "fanout." in body
     assert "event: done" in body
+    assert "event: token" in body
 
 
 def test_ask_streams_decline_when_ungrounded(

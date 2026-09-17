@@ -89,6 +89,7 @@ def test_search_ranks_relevant_chunk_first(
     assert response.status_code == 200
     hits = response.json()
     assert len(hits) >= 2
+    assert set(hits[0].keys()) == {"chunk_id", "note_id", "topic_id", "text", "score"}
     assert hits[0]["score"] >= hits[1]["score"]
     top = hits[0]["text"].lower()
     assert "tree" in top or "leaf" in top

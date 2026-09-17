@@ -1,4 +1,4 @@
-type AppView = "capture" | "repository" | "map" | "ask";
+type AppView = "capture" | "repository" | "map" | "ask" | "board";
 
 type ViewNavProps = {
   view: AppView;
@@ -35,6 +35,13 @@ export function ViewNav({ view, onChange }: ViewNavProps) {
         onClick={() => onChange("ask")}
       >
         Ask
+      </button>
+      <button
+        type="button"
+        className={view === "board" ? "nav-btn active" : "nav-btn"}
+        onClick={() => onChange("board")}
+      >
+        Board
       </button>
     </nav>
   );
