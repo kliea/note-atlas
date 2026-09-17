@@ -47,7 +47,9 @@ def test_create_list_and_reopen_note(
         "kind",
         "pinned",
         "ink_json",
+        "extract_status",
     }
+    assert body["extract_status"] == "pending"
     assert (body["x"], body["y"]) != (0, 0)
     assert body["kind"] == "typed"
     assert body["pinned"] is False
@@ -71,6 +73,7 @@ def test_create_list_and_reopen_note(
         "color",
         "kind",
         "pinned",
+        "extract_status",
     }
 
     reopened = client.get(f"/notes/{body['id']}")

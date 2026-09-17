@@ -25,15 +25,18 @@ import {
   fetchConnections,
   fetchNote,
   fetchNotes,
+  fetchSuggestions,
   patchNote,
 } from "../api";
 import { useCommandStack } from "../hooks/useCommandStack";
 import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion";
 import { joinNoteText, splitNoteText } from "../noteText";
-import type { Connection, NoteCreate, NoteDetail } from "../types";
+import type { Connection, LinkSuggestion, NoteCreate, NoteDetail } from "../types";
 import {
   BoardConnectionLine,
+  BoardGhostEdge,
   BoardStringEdge,
+  type BoardGhostEdge as BoardGhostEdgeType,
   type BoardStringEdge as BoardStringEdgeType,
 } from "./edges/BoardStringEdge";
 import {
@@ -49,6 +52,7 @@ const nodeTypes = {
 
 const edgeTypes = {
   boardString: BoardStringEdge,
+  boardGhost: BoardGhostEdge,
 } satisfies EdgeTypes;
 
 type Point = { x: number; y: number; z: number };
@@ -72,6 +76,8 @@ function toNode(note: NoteDetail, editing = false): BoardNoteNodeType {
       z: note.z,
       text: joinNoteText(note.title, note.raw_text),
       editing,
+      extractStatus: note.extract_status ?? "idle",
+      topics: note.topics ?? [],
     },
     draggable: !editing,
   };
@@ -114,6 +120,41 @@ function toEdge(
   };
 }
 
+function pairKey(left: number, right: number): string {
+  return left < right ? `${left}:${right}` : `${right}:${left}`;
+}
+
+function toGhost(
+  fromId: number,
+  suggestion: LinkSuggestion,
+  nodeList: BoardNoteNodeType[],
+): BoardGhostEdgeType {
+  const source = nodeList.find((node) => node.data.noteId === fromId);
+  const target = nodeList.find((node) => node.data.noteId === suggestion.note_id);
+  const sourceHandle =
+    source && target ? `out-${closestSide(source.position, target.position)}` : "out-right";
+  const targetHandle =
+    source && target ? closestSide(target.position, source.position) : Position.Left;
+  return {
+    id: `ghost-${pairKey(fromId, suggestion.note_id)}`,
+    type: "boardGhost",
+    source: String(fromId),
+    target: String(suggestion.note_id),
+    sourceHandle,
+    targetHandle,
+    selectable: false,
+    focusable: false,
+    data: {
+      fromId,
+      toId: suggestion.note_id,
+      score: suggestion.score,
+      reason: suggestion.reason,
+      title: suggestion.title,
+    },
+    interactionWidth: 24,
+  };
+}
+
 function linkedIdsFor(
   nodes: BoardNoteNodeType[],
   edges: BoardStringEdgeType[],
@@ -148,6 +189,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
   const { fitView, screenToFlowPosition } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState<BoardNoteNodeType>([]);
   const [edges, setEdges] = useEdgesState<BoardStringEdgeType>([]);
+  const [ghosts, setGhosts] = useState<BoardGhostEdgeType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const origins = useRef(new Map<string, Point>());
@@ -161,6 +203,8 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
   nodesRef.current = nodes;
   const edgesRef = useRef(edges);
   edgesRef.current = edges;
+  const dismissedPairs = useRef(new Set<string>());
+  const suggestedFor = useRef(new Set<number>());
   const { push, undo, redo, discard, canUndo, canRedo } = useCommandStack();
 
   useEffect(() => {
@@ -186,12 +230,16 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
             )
             .map((conn) => toEdge(conn, nextNodes)),
         );
+        setGhosts([]);
+        dismissedPairs.current.clear();
+        suggestedFor.current.clear();
       })
       .catch(() => {
         if (!cancelled) {
           setError("Could not load notes for the board.");
           setNodes([]);
           setEdges([]);
+          setGhosts([]);
         }
       })
       .finally(() => {
@@ -203,6 +251,16 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
       cancelled = true;
     };
   }, [setEdges, setNodes]);
+
+  const thinkingKey = nodes
+    .filter(
+      (node) =>
+        node.data.noteId > 0 &&
+        (node.data.extractStatus === "pending" || node.data.extractStatus === "running"),
+    )
+    .map((node) => node.data.noteId)
+    .sort((left, right) => left - right)
+    .join(",");
 
   useEffect(() => {
     if (loading || fitted.current) {
@@ -341,6 +399,9 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
       setEdges((current) =>
         current.filter((edge) => !dropIds.has(edge.source) && !dropIds.has(edge.target)),
       );
+      setGhosts((current) =>
+        current.filter((edge) => !dropIds.has(edge.source) && !dropIds.has(edge.target)),
+      );
     },
     [setEdges, setNodes],
   );
@@ -385,6 +446,13 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
     );
   }, []);
 
+  const dropGhost = useCallback((fromId: number, toId: number) => {
+    const key = pairKey(fromId, toId);
+    setGhosts((current) =>
+      current.filter((edge) => pairKey(edge.data?.fromId ?? 0, edge.data?.toId ?? 0) !== key),
+    );
+  }, []);
+
   const persistLink = useCallback(
     (fromId: number, toId: number, handles?: { sourceHandle?: string | null; targetHandle?: string | null }) => {
       const source = String(fromId);
@@ -400,6 +468,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
         handles,
       );
       setEdges((current) => [...current, { ...pending, id: pendingId }]);
+      dropGhost(fromId, toId);
       void createConnection(payload)
         .then((created) => {
           setEdges((current) =>
@@ -437,8 +506,140 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
           setError("Could not connect those notes.");
         });
     },
-    [pairLinked, push, setEdges],
+    [dropGhost, pairLinked, push, setEdges],
   );
+
+  const loadSuggestions = useCallback(
+    (noteId: number) => {
+      void fetchSuggestions(noteId)
+        .then((items) => {
+          setGhosts((current) => {
+            const keep = current.filter(
+              (edge) => edge.data?.fromId !== noteId && edge.data?.toId !== noteId,
+            );
+            const seen = new Set(
+              keep.map((edge) => pairKey(edge.data?.fromId ?? 0, edge.data?.toId ?? 0)),
+            );
+            const next: BoardGhostEdgeType[] = [];
+            for (const item of items) {
+              const key = pairKey(noteId, item.note_id);
+              if (dismissedPairs.current.has(key) || seen.has(key)) {
+                continue;
+              }
+              if (pairLinked(String(noteId), String(item.note_id))) {
+                continue;
+              }
+              seen.add(key);
+              next.push(toGhost(noteId, item, nodesRef.current));
+            }
+            return [...keep, ...next];
+          });
+        })
+        .catch(() => {
+          suggestedFor.current.delete(noteId);
+        });
+    },
+    [pairLinked],
+  );
+
+  const mergeExtracted = useCallback(
+    (note: NoteDetail) => {
+      if (note.extract_status === "pending" || note.extract_status === "running") {
+        suggestedFor.current.delete(note.id);
+      }
+      setNodes((current) =>
+        current.map((node) => {
+          if (node.data.noteId !== note.id) {
+            return node;
+          }
+          if (node.data.editing) {
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                extractStatus: note.extract_status,
+                topics: note.topics,
+              },
+            };
+          }
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              title: note.title,
+              source: note.source,
+              rawText: note.raw_text,
+              text: joinNoteText(note.title, note.raw_text),
+              extractStatus: note.extract_status,
+              topics: note.topics,
+            },
+          };
+        }),
+      );
+    },
+    [setNodes],
+  );
+
+  const acceptSuggestion = useCallback(
+    (fromId: number, toId: number) => {
+      persistLink(fromId, toId);
+    },
+    [persistLink],
+  );
+
+  const dismissSuggestion = useCallback(
+    (fromId: number, toId: number) => {
+      dismissedPairs.current.add(pairKey(fromId, toId));
+      dropGhost(fromId, toId);
+    },
+    [dropGhost],
+  );
+
+  useEffect(() => {
+    if (!thinkingKey) {
+      return;
+    }
+    const ids = thinkingKey.split(",").map(Number);
+    let cancelled = false;
+    const tick = () => {
+      void Promise.all(ids.map((id) => fetchNote(id)))
+        .then((details) => {
+          if (cancelled) {
+            return;
+          }
+          for (const detail of details) {
+            mergeExtracted(detail);
+          }
+        })
+        .catch(() => {
+          /* keep shimmering until the next tick */
+        });
+    };
+    tick();
+    const timer = window.setInterval(tick, 1200);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [mergeExtracted, thinkingKey]);
+
+  useEffect(() => {
+    for (const node of nodes) {
+      if (node.data.noteId < 1) {
+        continue;
+      }
+      const ready =
+        node.data.extractStatus === "done" ||
+        (node.data.extractStatus !== "pending" &&
+          node.data.extractStatus !== "running" &&
+          node.data.topics.length > 0);
+      if (!ready || suggestedFor.current.has(node.data.noteId)) {
+        continue;
+      }
+      suggestedFor.current.add(node.data.noteId);
+      loadSuggestions(node.data.noteId);
+    }
+  }, [loadSuggestions, nodes]);
 
   const cutConnection = useCallback(
     (connectionId: number) => {
@@ -719,6 +920,8 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
             z: maxZ + 1,
             text: "",
             editing: true,
+            extractStatus: "idle",
+            topics: [],
           },
           draggable: false,
         },
@@ -753,8 +956,15 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
   );
 
   const session = useMemo<BoardSession>(
-    () => ({ startEdit, updateText, commitEdit, cutConnection }),
-    [commitEdit, cutConnection, startEdit, updateText],
+    () => ({
+      startEdit,
+      updateText,
+      commitEdit,
+      cutConnection,
+      acceptSuggestion,
+      dismissSuggestion,
+    }),
+    [acceptSuggestion, commitEdit, cutConnection, dismissSuggestion, startEdit, updateText],
   );
 
   const linkedIds = useMemo(() => linkedIdsFor(nodes, edges), [edges, nodes]);
@@ -768,22 +978,30 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
         : nodes.map((node) => ({ ...node, className: undefined })),
     [linkedIds, nodes],
   );
-  const displayEdges = useMemo(
-    () =>
-      linkedIds
-        ? edges.map((edge) => ({
-            ...edge,
-            className:
-              linkedIds.has(edge.source) &&
-              linkedIds.has(edge.target) &&
-              (nodes.some((node) => node.selected && node.id === edge.source) ||
-                nodes.some((node) => node.selected && node.id === edge.target))
-                ? "board-linked"
-                : "board-dimmed",
-          }))
-        : edges.map((edge) => ({ ...edge, className: undefined })),
-    [edges, linkedIds, nodes],
-  );
+  const displayEdges = useMemo(() => {
+    const real = linkedIds
+      ? edges.map((edge) => ({
+          ...edge,
+          className:
+            linkedIds.has(edge.source) &&
+            linkedIds.has(edge.target) &&
+            (nodes.some((node) => node.selected && node.id === edge.source) ||
+              nodes.some((node) => node.selected && node.id === edge.target))
+              ? "board-linked"
+              : "board-dimmed",
+        }))
+      : edges.map((edge) => ({ ...edge, className: undefined }));
+    const suggested = linkedIds
+      ? ghosts.map((edge) => ({
+          ...edge,
+          className:
+            linkedIds.has(edge.source) || linkedIds.has(edge.target)
+              ? "board-linked"
+              : "board-dimmed",
+        }))
+      : ghosts;
+    return [...real, ...suggested];
+  }, [edges, ghosts, linkedIds, nodes]);
 
   const onPaneClick = useCallback(
     (event: MouseEvent) => {

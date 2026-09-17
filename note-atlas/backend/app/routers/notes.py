@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 
 from pydantic import ValidationError
 
+from app.ambient import schedule_extraction
 from app.db import (
     create_note,
     delete_chunks_for_note,
@@ -17,19 +18,34 @@ from app.db import (
     list_notes,
     patch_note,
     replace_note_extraction,
+    set_extract_status,
 )
 from app.export import bundle_from_note, extracted_topics, note_to_markdown, parse_markdown
 from app.extract import ExtractionError, extract_topics
 from app.index import index_note
 from app.llm import LlmError
-from app.models import MarkdownImport, NoteBundle, NoteCreate, NoteDetail, NotePatch, NoteSummary
+from app.models import (
+    LinkSuggestion,
+    MarkdownImport,
+    NoteBundle,
+    NoteCreate,
+    NoteDetail,
+    NotePatch,
+    NoteSummary,
+)
+from app.suggest import suggest_links
 
 router = APIRouter(prefix="/notes", tags=["notes"])
 
 
 @router.post("", response_model=NoteDetail, status_code=201)
-def post_note(payload: NoteCreate) -> NoteDetail:
-    return create_note(payload)
+def post_note(payload: NoteCreate, background: BackgroundTasks) -> NoteDetail:
+    created = create_note(payload)
+    schedule_extraction(background, created.id)
+    pending = get_note(created.id)
+    if pending is None:
+        raise HTTPException(status_code=500, detail="note vanished after create")
+    return pending
 
 
 @router.get("", response_model=list[NoteSummary])
@@ -61,6 +77,7 @@ def post_import(payload: dict[str, Any]) -> NoteDetail:
             index_note(created.id)
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=502, detail=f"indexing failed: {exc}") from exc
+        set_extract_status(created.id, "done")
     updated = get_note(created.id)
     if updated is None:
         raise HTTPException(status_code=500, detail="note vanished during import")
@@ -104,11 +121,33 @@ def get_note_by_id(note_id: int) -> NoteDetail:
     return note
 
 
+@router.get("/{note_id}/suggestions", response_model=list[LinkSuggestion])
+def get_note_suggestions(note_id: int) -> list[LinkSuggestion]:
+    note = get_note(note_id)
+    if note is None:
+        raise HTTPException(status_code=404, detail="note not found")
+    return suggest_links(note_id)
+
+
 @router.patch("/{note_id}", response_model=NoteDetail)
-def patch_note_by_id(note_id: int, payload: NotePatch) -> NoteDetail:
+def patch_note_by_id(note_id: int, payload: NotePatch, background: BackgroundTasks) -> NoteDetail:
+    existing = get_note(note_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="note not found")
     updated = patch_note(note_id, payload)
     if updated is None:
         raise HTTPException(status_code=404, detail="note not found")
+    changes = payload.model_dump(exclude_unset=True)
+    text_changed = (
+        ("title" in changes and changes["title"] != existing.title)
+        or ("raw_text" in changes and changes["raw_text"] != existing.raw_text)
+    )
+    if text_changed:
+        schedule_extraction(background, note_id)
+        refreshed = get_note(note_id)
+        if refreshed is None:
+            raise HTTPException(status_code=500, detail="note vanished during extract")
+        return refreshed
     return updated
 
 
@@ -123,9 +162,11 @@ def extract_note(note_id: int) -> NoteDetail:
     note = get_note(note_id)
     if note is None:
         raise HTTPException(status_code=404, detail="note not found")
+    set_extract_status(note_id, "running")
     try:
         payload = extract_topics(note.raw_text)
     except (ExtractionError, LlmError) as exc:
+        set_extract_status(note_id, "error")
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     delete_chunks_for_note(note_id)
     replace_note_extraction(note_id, payload.topics)
@@ -135,8 +176,13 @@ def extract_note(note_id: int) -> NoteDetail:
     try:
         index_note(note_id)
     except Exception as exc:  # noqa: BLE001
+        set_extract_status(note_id, "error")
         raise HTTPException(status_code=502, detail=f"indexing failed: {exc}") from exc
-    return updated
+    set_extract_status(note_id, "done")
+    finished = get_note(note_id)
+    if finished is None:
+        raise HTTPException(status_code=500, detail="note vanished during extraction")
+    return finished
 
 
 def _slug(title: str) -> str:

@@ -14,6 +14,8 @@ export type PillState = "loading" | "ok" | "error";
 
 export type NoteKind = "typed" | "voice" | "ink" | "clip";
 
+export type ExtractStatus = "idle" | "pending" | "running" | "done" | "error";
+
 export type NoteCreate = {
   title: string;
   source: string;
@@ -33,6 +35,7 @@ export type NoteSummary = {
   color: string | null;
   kind: NoteKind;
   pinned: boolean;
+  extract_status: ExtractStatus;
 };
 
 export type NotePatch = {
@@ -60,6 +63,13 @@ export type ConnectionCreate = {
   from_note_id: number;
   to_note_id: number;
   kind?: string;
+};
+
+export type LinkSuggestion = {
+  note_id: number;
+  title: string;
+  score: number;
+  reason: "embedding" | "shared-tag";
 };
 
 export type Point = {

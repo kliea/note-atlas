@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
+import type { ExtractStatus, Topic } from "../../types";
 
 export type BoardNoteData = {
   title: string;
@@ -10,6 +11,8 @@ export type BoardNoteData = {
   z: number;
   text: string;
   editing: boolean;
+  extractStatus: ExtractStatus;
+  topics: Topic[];
 };
 
 export type BoardNoteNode = Node<BoardNoteData, "boardNote">;
@@ -19,6 +22,8 @@ export type BoardSession = {
   updateText: (nodeId: string, text: string) => void;
   commitEdit: (nodeId: string, text: string) => void;
   cutConnection: (connectionId: number) => void;
+  acceptSuggestion: (fromId: number, toId: number) => void;
+  dismissSuggestion: (fromId: number, toId: number) => void;
 };
 
 export const BoardSessionContext = createContext<BoardSession | null>(null);
@@ -58,12 +63,14 @@ export function BoardNoteNode({ id, data, selected }: NodeProps<BoardNoteNode>) 
   const session = useContext(BoardSessionContext);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const connectable = data.noteId > 0 && !data.editing;
+  const thinking = data.extractStatus === "pending" || data.extractStatus === "running";
   const className = [
     "map-node",
     "map-node-note",
     "board-note",
     selected ? "selected" : "",
     data.editing ? "editing" : "",
+    thinking ? "thinking" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -107,6 +114,8 @@ export function BoardNoteNode({ id, data, selected }: NodeProps<BoardNoteNode>) 
 
   const preview = data.text.trim() || data.title;
   const [first, ...rest] = preview.split("\n");
+  const tags = uniqueTags(data.topics);
+  const points = data.topics.flatMap((topic) => topic.points.map((point) => point.text));
   return (
     <article
       className={className}
@@ -118,13 +127,39 @@ export function BoardNoteNode({ id, data, selected }: NodeProps<BoardNoteNode>) 
       }}
     >
       <BoardHandles connectable={connectable} title={data.title || "note"} />
-      <p className="map-node-kicker">Note</p>
+      <p className="map-node-kicker">{thinking ? "Thinking" : "Note"}</p>
       <h3>{first || data.title || "Untitled"}</h3>
       {rest.length > 0 ? (
         <p className="board-note-preview">{rest.join(" ").slice(0, 140)}</p>
       ) : (
         <p className="map-node-source">{data.source || "no source"}</p>
       )}
+      {points.length > 0 ? (
+        <ul className="board-note-points">
+          {points.slice(0, 3).map((text) => (
+            <li key={text}>{text}</li>
+          ))}
+        </ul>
+      ) : null}
+      {tags.length > 0 ? (
+        <ul className="board-note-tags">
+          {tags.slice(0, 6).map((tag) => (
+            <li key={tag}>{tag}</li>
+          ))}
+        </ul>
+      ) : null}
     </article>
   );
+}
+
+function uniqueTags(topics: Topic[]): string[] {
+  const tags: string[] = [];
+  for (const topic of topics) {
+    for (const item of topic.tags) {
+      if (!tags.includes(item.tag)) {
+        tags.push(item.tag);
+      }
+    }
+  }
+  return tags;
 }
