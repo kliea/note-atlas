@@ -12,6 +12,8 @@ export type LlmPingResponse = {
 
 export type PillState = "loading" | "ok" | "error";
 
+export type NoteKind = "typed" | "voice" | "ink" | "clip";
+
 export type NoteCreate = {
   title: string;
   source: string;
@@ -23,6 +25,36 @@ export type NoteSummary = {
   title: string;
   source: string;
   created_at: string;
+  x: number;
+  y: number;
+  z: number;
+  color: string | null;
+  kind: NoteKind;
+  pinned: boolean;
+};
+
+export type NotePatch = {
+  x?: number;
+  y?: number;
+  z?: number;
+  color?: string | null;
+  kind?: NoteKind;
+  pinned?: boolean;
+  ink_json?: string | null;
+};
+
+export type Connection = {
+  id: number;
+  from_note_id: number;
+  to_note_id: number;
+  kind: string;
+  created_at: string;
+};
+
+export type ConnectionCreate = {
+  from_note_id: number;
+  to_note_id: number;
+  kind?: string;
 };
 
 export type Point = {
@@ -50,6 +82,7 @@ export type Topic = {
 export type NoteDetail = NoteSummary & {
   raw_text: string;
   topics: Topic[];
+  ink_json: string | null;
 };
 
 export type Citation = {

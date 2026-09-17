@@ -1,10 +1,13 @@
 import type {
   AskMeta,
   Citation,
+  Connection,
+  ConnectionCreate,
   HealthResponse,
   LlmPingResponse,
   NoteCreate,
   NoteDetail,
+  NotePatch,
   NoteSummary,
 } from "./types";
 
@@ -58,6 +61,36 @@ export function createNote(payload: NoteCreate): Promise<NoteDetail> {
 
 export function extractNote(id: number): Promise<NoteDetail> {
   return requestJson<NoteDetail>(`/notes/${id}/extract`, { method: "POST" });
+}
+
+export function patchNote(id: number, payload: NotePatch): Promise<NoteDetail> {
+  return requestJson<NoteDetail>(`/notes/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function fetchConnections(): Promise<Connection[]> {
+  return requestJson<Connection[]>("/connections");
+}
+
+export function createConnection(payload: ConnectionCreate): Promise<Connection> {
+  return requestJson<Connection>("/connections", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteConnection(id: number): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/connections/${id}`,
+    { method: "DELETE" },
+  );
+  if (!response.ok) {
+    throw new Error(`delete connection failed: ${response.status}`);
+  }
 }
 
 export async function downloadNoteExport(

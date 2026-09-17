@@ -8,9 +8,21 @@ from pathlib import Path
 
 from app.config import db_path
 from app.embed import EMBEDDING_DIM
-from app.models import ExtractedTopic, NoteCreate, NoteDetail, NoteSummary, Point, Tag, Topic
+from app.layout import grid_position
+from app.models import (
+    Connection,
+    ConnectionCreate,
+    ExtractedTopic,
+    NoteCreate,
+    NoteDetail,
+    NotePatch,
+    NoteSummary,
+    Point,
+    Tag,
+    Topic,
+)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _V1_STATEMENTS = (
     """
@@ -56,6 +68,32 @@ _CHUNKS_TABLE = """
     )
 """
 
+_CONNECTIONS_TABLE = """
+    CREATE TABLE IF NOT EXISTS connections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        from_note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+        to_note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL DEFAULT 'link',
+        created_at TEXT NOT NULL,
+        CHECK (from_note_id != to_note_id)
+    )
+"""
+
+_CONNECTIONS_PAIR_INDEX = """
+    CREATE UNIQUE INDEX IF NOT EXISTS connections_unordered_pair
+    ON connections (MIN(from_note_id, to_note_id), MAX(from_note_id, to_note_id))
+"""
+
+_NOTE_SPATIAL_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("x", "REAL"),
+    ("y", "REAL"),
+    ("z", "INTEGER DEFAULT 0"),
+    ("color", "TEXT"),
+    ("kind", "TEXT DEFAULT 'typed'"),
+    ("pinned", "INTEGER DEFAULT 0"),
+    ("ink_json", "TEXT"),
+)
+
 
 def resolve_db_path() -> Path:
     """Relative DB_PATH values are resolved from the repo root."""
@@ -85,7 +123,7 @@ def _load_sqlite_vec(conn: sqlite3.Connection) -> None:
 
 
 def migrate(conn: sqlite3.Connection | None = None) -> None:
-    """Apply pending schema versions (1 = notes, 2 = chunks + sqlite-vec)."""
+    """Apply pending schema versions (1 = notes, 2 = chunks + sqlite-vec, 3 = space)."""
     owns_connection = conn is None
     if conn is None:
         conn = get_connection()
@@ -93,10 +131,7 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
         conn.execute(
             "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)"
         )
-        applied = {
-            int(row["version"])
-            for row in conn.execute("SELECT version FROM schema_migrations")
-        }
+        applied = _applied_versions(conn)
         if 1 not in applied:
             for statement in _V1_STATEMENTS:
                 conn.execute(statement)
@@ -111,10 +146,77 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
                 """
             )
             conn.execute("INSERT INTO schema_migrations (version) VALUES (2)")
+        if 3 not in applied:
+            _migrate_v3(conn)
+            conn.execute("INSERT INTO schema_migrations (version) VALUES (3)")
         conn.commit()
     finally:
         if owns_connection:
             conn.close()
+
+
+def migrate_down(target_version: int, conn: sqlite3.Connection | None = None) -> None:
+    """Roll schema back to target_version. v3 → v2 drops spatial columns and connections."""
+    if target_version < 2:
+        raise ValueError("cannot roll back below schema version 2 (chunks + sqlite-vec)")
+    owns_connection = conn is None
+    if conn is None:
+        conn = get_connection()
+    try:
+        applied = _applied_versions(conn)
+        current = max(applied) if applied else 0
+        if target_version > current:
+            raise ValueError(
+                f"target version {target_version} is ahead of applied {current}"
+            )
+        if 3 in applied and target_version < 3:
+            _downgrade_v3(conn)
+            conn.execute("DELETE FROM schema_migrations WHERE version = 3")
+        conn.commit()
+    finally:
+        if owns_connection:
+            conn.close()
+
+
+def _applied_versions(conn: sqlite3.Connection) -> set[int]:
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)"
+    )
+    return {
+        int(row["version"])
+        for row in conn.execute("SELECT version FROM schema_migrations")
+    }
+
+
+def _column_names(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {str(row["name"]) for row in conn.execute(f"PRAGMA table_info({table})")}
+
+
+def _migrate_v3(conn: sqlite3.Connection) -> None:
+    existing = _column_names(conn, "notes")
+    for name, declaration in _NOTE_SPATIAL_COLUMNS:
+        if name not in existing:
+            conn.execute(f"ALTER TABLE notes ADD COLUMN {name} {declaration}")
+    conn.execute(_CONNECTIONS_TABLE)
+    conn.execute(_CONNECTIONS_PAIR_INDEX)
+    rows = conn.execute("SELECT id FROM notes ORDER BY id ASC").fetchall()
+    for index, row in enumerate(rows):
+        x, y = grid_position(index)
+        conn.execute(
+            "UPDATE notes SET x = ?, y = ?, z = COALESCE(z, 0), "
+            "kind = COALESCE(kind, 'typed'), pinned = COALESCE(pinned, 0) "
+            "WHERE id = ?",
+            (x, y, int(row["id"])),
+        )
+
+
+def _downgrade_v3(conn: sqlite3.Connection) -> None:
+    conn.execute("DROP INDEX IF EXISTS connections_unordered_pair")
+    conn.execute("DROP TABLE IF EXISTS connections")
+    existing = _column_names(conn, "notes")
+    for name, _declaration in reversed(_NOTE_SPATIAL_COLUMNS):
+        if name in existing:
+            conn.execute(f"ALTER TABLE notes DROP COLUMN {name}")
 
 
 def init_db() -> None:
@@ -125,12 +227,17 @@ def create_note(payload: NoteCreate) -> NoteDetail:
     created_at = datetime.now(timezone.utc).isoformat()
     conn = get_connection()
     try:
+        index = int(conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0])
+        x, y = grid_position(index)
         cursor = conn.execute(
             """
-            INSERT INTO notes (title, source, raw_text, created_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO notes (
+                title, source, raw_text, created_at,
+                x, y, z, color, kind, pinned, ink_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, 0, NULL, 'typed', 0, NULL)
             """,
-            (payload.title, payload.source, payload.raw_text, created_at),
+            (payload.title, payload.source, payload.raw_text, created_at, x, y),
         )
         conn.commit()
         note_id = int(cursor.lastrowid)
@@ -147,12 +254,12 @@ def list_notes() -> list[NoteSummary]:
     try:
         rows = conn.execute(
             """
-            SELECT id, title, source, created_at
+            SELECT id, title, source, created_at, x, y, z, color, kind, pinned
             FROM notes
             ORDER BY datetime(created_at) DESC, id DESC
             """
         ).fetchall()
-        return [NoteSummary.model_validate(dict(row)) for row in rows]
+        return [NoteSummary.model_validate(_summary_fields(row)) for row in rows]
     finally:
         conn.close()
 
@@ -194,7 +301,8 @@ def get_note(note_id: int) -> NoteDetail | None:
     try:
         note_row = conn.execute(
             """
-            SELECT id, title, source, raw_text, created_at
+            SELECT id, title, source, raw_text, created_at,
+                   x, y, z, color, kind, pinned, ink_json
             FROM notes
             WHERE id = ?
             """,
@@ -203,14 +311,126 @@ def get_note(note_id: int) -> NoteDetail | None:
         if note_row is None:
             return None
         topics = _load_topics(conn, note_id)
-        return NoteDetail(
-            id=note_row["id"],
-            title=note_row["title"],
-            source=note_row["source"],
-            raw_text=note_row["raw_text"],
-            created_at=note_row["created_at"],
-            topics=topics,
+        fields = _detail_fields(note_row)
+        fields["topics"] = topics
+        return NoteDetail.model_validate(fields)
+    finally:
+        conn.close()
+
+
+def _summary_fields(row: sqlite3.Row) -> dict[str, object]:
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "source": row["source"],
+        "created_at": row["created_at"],
+        "x": float(row["x"]),
+        "y": float(row["y"]),
+        "z": int(row["z"] or 0),
+        "color": row["color"],
+        "kind": row["kind"] or "typed",
+        "pinned": bool(row["pinned"]),
+    }
+
+
+def _detail_fields(row: sqlite3.Row) -> dict[str, object]:
+    fields = _summary_fields(row)
+    fields["raw_text"] = row["raw_text"]
+    fields["ink_json"] = row["ink_json"]
+    return fields
+
+
+def patch_note(note_id: int, patch: NotePatch) -> NoteDetail | None:
+    """Apply a partial spatial/style update. Returns None if the note is missing."""
+    if get_note(note_id) is None:
+        return None
+    updates = patch.model_dump(exclude_unset=True)
+    if updates:
+        if "pinned" in updates and updates["pinned"] is not None:
+            updates["pinned"] = int(bool(updates["pinned"]))
+        assignments = ", ".join(f"{column} = ?" for column in updates)
+        values = list(updates.values())
+        values.append(note_id)
+        conn = get_connection()
+        try:
+            conn.execute(
+                f"UPDATE notes SET {assignments} WHERE id = ?",
+                values,
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    return get_note(note_id)
+
+
+def create_connection(payload: ConnectionCreate) -> Connection:
+    if payload.from_note_id == payload.to_note_id:
+        raise ValueError("cannot connect a note to itself")
+    if get_note(payload.from_note_id) is None:
+        raise KeyError(payload.from_note_id)
+    if get_note(payload.to_note_id) is None:
+        raise KeyError(payload.to_note_id)
+    created_at = datetime.now(timezone.utc).isoformat()
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            """
+            INSERT INTO connections (from_note_id, to_note_id, kind, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (payload.from_note_id, payload.to_note_id, payload.kind, created_at),
         )
+        conn.commit()
+        conn_id = int(cursor.lastrowid)
+    except sqlite3.IntegrityError as exc:
+        raise ValueError("connection already exists") from exc
+    finally:
+        conn.close()
+    item = get_connection_by_id(conn_id)
+    if item is None:
+        raise RuntimeError("connection insert succeeded but row was not readable")
+    return item
+
+
+def get_connection_by_id(connection_id: int) -> Connection | None:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT id, from_note_id, to_note_id, kind, created_at
+            FROM connections
+            WHERE id = ?
+            """,
+            (connection_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return Connection.model_validate(dict(row))
+    finally:
+        conn.close()
+
+
+def list_connections() -> list[Connection]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, from_note_id, to_note_id, kind, created_at
+            FROM connections
+            ORDER BY id ASC
+            """
+        ).fetchall()
+        return [Connection.model_validate(dict(row)) for row in rows]
+    finally:
+        conn.close()
+
+
+def delete_connection(connection_id: int) -> bool:
+    conn = get_connection()
+    try:
+        cursor = conn.execute("DELETE FROM connections WHERE id = ?", (connection_id,))
+        conn.commit()
+        return cursor.rowcount > 0
     finally:
         conn.close()
 
