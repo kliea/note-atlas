@@ -248,7 +248,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
 
 function BoardCanvas({ colorMode }: BoardViewProps) {
   const reduceMotion = usePrefersReducedMotion();
-  const { fitView, screenToFlowPosition } = useReactFlow();
+  const { fitView, getNodes, screenToFlowPosition } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState<BoardNoteNodeType>([]);
   const [edges, setEdges] = useEdgesState<BoardStringEdgeType>([]);
   const [ghosts, setGhosts] = useState<BoardGhostEdgeType[]>([]);
@@ -1035,11 +1035,13 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
       setNodes((current) => [...current, makeAskNode(draftId, trimmed, session.origin, maxZ)]);
       let answer = "";
       let citations: Citation[] = [];
+      let grounded = false;
       void streamAsk(
         trimmed,
         {
           onMeta: (meta) => {
-            citations = meta.citations;
+            grounded = meta.grounded;
+            citations = meta.grounded ? meta.citations : [];
           },
           onToken: (piece) => {
             answer += piece;
@@ -1084,9 +1086,13 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
           );
           removeByNoteId(draftId);
           addOrReplace(pinned);
-          const cited = [
-            ...new Set(citations.map((item) => item.note_id).filter((id) => id !== pinned.id)),
-          ];
+          const cited = grounded
+            ? [
+                ...new Set(
+                  citations.map((item) => item.note_id).filter((id) => id !== pinned.id),
+                ),
+              ]
+            : [];
           for (const id of cited) {
             persistLink(pinned.id, id);
           }
@@ -1185,17 +1191,18 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
     if (askingRef.current) {
       return;
     }
-    const selected = nodesRef.current.filter(
+    const current = getNodes() as BoardNoteNodeType[];
+    const selected = current.filter(
       (node) => node.selected && node.data.noteId > 0 && node.data.source !== "ask",
     );
-    if (selected.length === 0) {
+    if (selected.length < 2) {
       return;
     }
     setAskSession({
       origin: selectionOrigin(selected),
-      noteIds: scopedNoteIds(nodesRef.current),
+      noteIds: scopedNoteIds(current),
     });
-  }, []);
+  }, [getNodes]);
 
   const spawnAtViewCenter = useCallback(() => {
     const canvas = document.querySelector(".board-canvas");
@@ -1302,7 +1309,8 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
       if (askingRef.current) {
         return;
       }
-      const selected = nodesRef.current.filter(
+      const current = getNodes() as BoardNoteNodeType[];
+      const selected = current.filter(
         (node) => node.selected && node.data.noteId > 0 && node.data.source !== "ask",
       );
       let origin = { x: 240, y: 180 };
@@ -1313,7 +1321,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
       }
       setAskSession({
         origin,
-        noteIds: scopedNoteIds(nodesRef.current),
+        noteIds: scopedNoteIds(current),
       });
     }
 
@@ -1417,6 +1425,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
   }, [
     addOrReplace,
     askSession,
+    getNodes,
     persistLink,
     push,
     removeByNoteId,
