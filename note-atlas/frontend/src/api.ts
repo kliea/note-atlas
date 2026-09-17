@@ -4,6 +4,7 @@ import type {
   Connection,
   ConnectionCreate,
   HealthResponse,
+  LinkSuggestion,
   LlmPingResponse,
   NoteCreate,
   NoteDetail,
@@ -49,6 +50,10 @@ export function fetchNotes(): Promise<NoteSummary[]> {
 
 export function fetchNote(id: number): Promise<NoteDetail> {
   return requestJson<NoteDetail>(`/notes/${id}`);
+}
+
+export function fetchSuggestions(id: number): Promise<LinkSuggestion[]> {
+  return requestJson<LinkSuggestion[]>(`/notes/${id}/suggestions`);
 }
 
 export function createNote(payload: NoteCreate): Promise<NoteDetail> {

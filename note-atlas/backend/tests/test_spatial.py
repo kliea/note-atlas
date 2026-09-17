@@ -190,6 +190,11 @@ def test_v3_migration_roundtrip_on_copy_of_real_db(
             for row in conn.execute("SELECT version FROM schema_migrations")
         }
         assert 3 in versions
+        assert 4 in versions
+        columns = {
+            str(row["name"]) for row in conn.execute("PRAGMA table_info(notes)")
+        }
+        assert "extract_status" in columns
         positions = conn.execute(
             "SELECT id, x, y FROM notes ORDER BY id"
         ).fetchall()
@@ -218,6 +223,7 @@ def test_v3_migration_roundtrip_on_copy_of_real_db(
     try:
         names = {str(row[1]) for row in probe.execute("PRAGMA table_info(notes)")}
         assert "x" not in names
+        assert "extract_status" not in names
         tables = {
             str(row[0])
             for row in probe.execute(

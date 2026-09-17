@@ -12,6 +12,7 @@ from app.layout import grid_position
 from app.models import (
     Connection,
     ConnectionCreate,
+    ExtractStatus,
     ExtractedTopic,
     NoteCreate,
     NoteDetail,
@@ -22,7 +23,7 @@ from app.models import (
     Topic,
 )
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _V1_STATEMENTS = (
     """
@@ -123,7 +124,7 @@ def _load_sqlite_vec(conn: sqlite3.Connection) -> None:
 
 
 def migrate(conn: sqlite3.Connection | None = None) -> None:
-    """Apply pending schema versions (1 = notes, 2 = chunks + sqlite-vec, 3 = space)."""
+    """Apply pending schema versions (1 notes, 2 chunks, 3 space, 4 extract_status)."""
     owns_connection = conn is None
     if conn is None:
         conn = get_connection()
@@ -149,6 +150,9 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
         if 3 not in applied:
             _migrate_v3(conn)
             conn.execute("INSERT INTO schema_migrations (version) VALUES (3)")
+        if 4 not in applied:
+            _migrate_v4(conn)
+            conn.execute("INSERT INTO schema_migrations (version) VALUES (4)")
         conn.commit()
     finally:
         if owns_connection:
@@ -156,7 +160,7 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
 
 
 def migrate_down(target_version: int, conn: sqlite3.Connection | None = None) -> None:
-    """Roll schema back to target_version. v3 → v2 drops spatial columns and connections."""
+    """Roll schema back to target_version. v4 drops extract_status; v3 drops space."""
     if target_version < 2:
         raise ValueError("cannot roll back below schema version 2 (chunks + sqlite-vec)")
     owns_connection = conn is None
@@ -169,6 +173,9 @@ def migrate_down(target_version: int, conn: sqlite3.Connection | None = None) ->
             raise ValueError(
                 f"target version {target_version} is ahead of applied {current}"
             )
+        if 4 in applied and target_version < 4:
+            _downgrade_v4(conn)
+            conn.execute("DELETE FROM schema_migrations WHERE version = 4")
         if 3 in applied and target_version < 3:
             _downgrade_v3(conn)
             conn.execute("DELETE FROM schema_migrations WHERE version = 3")
@@ -219,6 +226,20 @@ def _downgrade_v3(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE notes DROP COLUMN {name}")
 
 
+def _migrate_v4(conn: sqlite3.Connection) -> None:
+    existing = _column_names(conn, "notes")
+    if "extract_status" not in existing:
+        conn.execute(
+            "ALTER TABLE notes ADD COLUMN extract_status TEXT NOT NULL DEFAULT 'idle'"
+        )
+
+
+def _downgrade_v4(conn: sqlite3.Connection) -> None:
+    existing = _column_names(conn, "notes")
+    if "extract_status" in existing:
+        conn.execute("ALTER TABLE notes DROP COLUMN extract_status")
+
+
 def init_db() -> None:
     migrate()
 
@@ -258,7 +279,8 @@ def list_notes() -> list[NoteSummary]:
     try:
         rows = conn.execute(
             """
-            SELECT id, title, source, created_at, x, y, z, color, kind, pinned
+            SELECT id, title, source, created_at, x, y, z, color, kind, pinned,
+                   extract_status
             FROM notes
             ORDER BY datetime(created_at) DESC, id DESC
             """
@@ -306,7 +328,7 @@ def get_note(note_id: int) -> NoteDetail | None:
         note_row = conn.execute(
             """
             SELECT id, title, source, raw_text, created_at,
-                   x, y, z, color, kind, pinned, ink_json
+                   x, y, z, color, kind, pinned, ink_json, extract_status
             FROM notes
             WHERE id = ?
             """,
@@ -334,6 +356,7 @@ def _summary_fields(row: sqlite3.Row) -> dict[str, object]:
         "color": row["color"],
         "kind": row["kind"] or "typed",
         "pinned": bool(row["pinned"]),
+        "extract_status": row["extract_status"] or "idle",
     }
 
 
@@ -365,6 +388,48 @@ def patch_note(note_id: int, patch: NotePatch) -> NoteDetail | None:
         finally:
             conn.close()
     return get_note(note_id)
+
+
+def set_extract_status(note_id: int, status: ExtractStatus) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE notes SET extract_status = ? WHERE id = ?",
+            (status, note_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def connected_note_ids(note_id: int) -> set[int]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT from_note_id, to_note_id
+            FROM connections
+            WHERE from_note_id = ? OR to_note_id = ?
+            """,
+            (note_id, note_id),
+        ).fetchall()
+        ids: set[int] = set()
+        for row in rows:
+            ids.add(int(row["from_note_id"]))
+            ids.add(int(row["to_note_id"]))
+        ids.discard(note_id)
+        return ids
+    finally:
+        conn.close()
+
+
+def chunk_count() -> int:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT COUNT(*) AS n FROM chunks").fetchone()
+        return int(row["n"] if row["n"] is not None else 0)
+    finally:
+        conn.close()
 
 
 def delete_note(note_id: int) -> bool:

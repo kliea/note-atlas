@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field, field_validator
 
 NoteKind = Literal["typed", "voice", "ink", "clip"]
 NOTE_KINDS: tuple[NoteKind, ...] = ("typed", "voice", "ink", "clip")
+ExtractStatus = Literal["idle", "pending", "running", "done", "error"]
+EXTRACT_STATUSES: tuple[ExtractStatus, ...] = ("idle", "pending", "running", "done", "error")
 
 
 class NoteCreate(BaseModel):
@@ -30,6 +32,7 @@ class NoteSummary(BaseModel):
     color: str | None = None
     kind: NoteKind = "typed"
     pinned: bool = False
+    extract_status: ExtractStatus = "idle"
 
 
 class Point(BaseModel):
@@ -73,6 +76,13 @@ class NotePatch(BaseModel):
     title: str | None = Field(default=None, min_length=1)
     source: str | None = None
     raw_text: str | None = Field(default=None, min_length=1)
+
+
+class LinkSuggestion(BaseModel):
+    note_id: int
+    title: str
+    score: float
+    reason: Literal["embedding", "shared-tag"]
 
 
 class ConnectionCreate(BaseModel):
