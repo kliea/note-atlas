@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import {
   Background,
   Controls,
@@ -11,11 +11,17 @@ import {
   type OnNodeDrag,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { fetchNotes, patchNote } from "../api";
+import { createNote, deleteNote, fetchNote, fetchNotes, patchNote } from "../api";
 import { useCommandStack } from "../hooks/useCommandStack";
 import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion";
-import type { NoteSummary } from "../types";
-import { BoardNoteNode, type BoardNoteNode as BoardNoteNodeType } from "./nodes/BoardNoteNode";
+import { joinNoteText, splitNoteText } from "../noteText";
+import type { NoteCreate, NoteDetail } from "../types";
+import {
+  BoardSessionContext,
+  BoardNoteNode,
+  type BoardNoteNode as BoardNoteNodeType,
+  type BoardSession,
+} from "./nodes/BoardNoteNode";
 
 const nodeTypes = {
   boardNote: BoardNoteNode,
@@ -27,7 +33,7 @@ type BoardViewProps = {
   colorMode: ColorMode;
 };
 
-function toNode(note: NoteSummary): BoardNoteNodeType {
+function toNode(note: NoteDetail, editing = false): BoardNoteNodeType {
   return {
     id: String(note.id),
     type: "boardNote",
@@ -36,23 +42,39 @@ function toNode(note: NoteSummary): BoardNoteNodeType {
     data: {
       title: note.title,
       source: note.source,
+      rawText: note.raw_text,
       noteId: note.id,
       color: note.color,
       z: note.z,
+      text: joinNoteText(note.title, note.raw_text),
+      editing,
     },
-    draggable: true,
+    draggable: !editing,
   };
+}
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.tagName === "INPUT" ||
+      target.tagName === "TEXTAREA" ||
+      target.isContentEditable)
+  );
 }
 
 function BoardCanvas({ colorMode }: BoardViewProps) {
   const reduceMotion = usePrefersReducedMotion();
-  const { fitView } = useReactFlow();
+  const { fitView, screenToFlowPosition } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState<BoardNoteNodeType>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const origins = useRef(new Map<string, Point>());
   const liftedZ = useRef(new Map<string, number>());
   const fitted = useRef(false);
+  const draftSeq = useRef(-1);
+  const lastPaneTap = useRef(0);
+  const lastPointer = useRef<{ x: number; y: number } | null>(null);
+  const committing = useRef(new Set<string>());
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
   const { push, undo, redo, discard, canUndo, canRedo } = useCommandStack();
@@ -62,9 +84,10 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
     setLoading(true);
     setError(null);
     void fetchNotes()
-      .then((notes) => {
+      .then((listed) => Promise.all(listed.map((note) => fetchNote(note.id))))
+      .then((details) => {
         if (!cancelled) {
-          setNodes(notes.map(toNode));
+          setNodes(details.map((note) => toNode(note)));
         }
       })
       .catch(() => {
@@ -84,10 +107,13 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
   }, [setNodes]);
 
   useEffect(() => {
-    if (loading || nodes.length === 0 || fitted.current) {
+    if (loading || fitted.current) {
       return;
     }
     fitted.current = true;
+    if (nodes.length === 0) {
+      return;
+    }
     const frame = requestAnimationFrame(() => {
       void fitView({ padding: 0.25, duration: reduceMotion ? 0 : 200 });
     });
@@ -98,7 +124,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
     (noteId: number, point: Point) => {
       setNodes((current) =>
         current.map((node) =>
-          node.id === String(noteId)
+          node.data.noteId === noteId
             ? {
                 ...node,
                 position: { x: point.x, y: point.y },
@@ -112,18 +138,25 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
     [setNodes],
   );
 
-  const persistPoint = useCallback(async (noteId: number, point: Point, fallback: Point) => {
-    applyPoint(noteId, point);
-    try {
-      await patchNote(noteId, { x: point.x, y: point.y, z: point.z });
-    } catch {
-      applyPoint(noteId, fallback);
-      throw new Error("move failed");
-    }
-  }, [applyPoint]);
+  const persistPoint = useCallback(
+    async (noteId: number, point: Point, fallback: Point) => {
+      applyPoint(noteId, point);
+      try {
+        await patchNote(noteId, { x: point.x, y: point.y, z: point.z });
+      } catch {
+        applyPoint(noteId, fallback);
+        throw new Error("move failed");
+      }
+    },
+    [applyPoint],
+  );
 
   const moveNote = useCallback(
     (noteId: number, from: Point, to: Point) => {
+      if (noteId < 0) {
+        applyPoint(noteId, to);
+        return;
+      }
       if (Math.abs(from.x - to.x) < 0.5 && Math.abs(from.y - to.y) < 0.5) {
         return;
       }
@@ -144,6 +177,9 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
 
   const onNodeDragStart: OnNodeDrag<BoardNoteNodeType> = useCallback(
     (_event, node) => {
+      if (node.data.editing) {
+        return;
+      }
       origins.current.set(node.id, {
         x: node.position.x,
         y: node.position.y,
@@ -180,6 +216,9 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
         z: liftedZ.current.get(node.id) ?? node.data.z,
       };
       liftedZ.current.delete(node.id);
+      if (node.data.noteId < 0) {
+        return;
+      }
       const moved =
         Math.abs(from.x - to.x) >= 0.5 || Math.abs(from.y - to.y) >= 0.5;
       if (!moved) {
@@ -193,19 +232,334 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
     [applyPoint, moveNote],
   );
 
+  const removeByNoteId = useCallback(
+    (noteId: number, nodeId?: string) => {
+      setNodes((current) =>
+        current.filter(
+          (node) => node.data.noteId !== noteId && node.id !== nodeId,
+        ),
+      );
+    },
+    [setNodes],
+  );
+
+  const addOrReplace = useCallback(
+    (note: NoteDetail, editing = false) => {
+      const next = toNode(note, editing);
+      setNodes((current) => {
+        const without = current.filter(
+          (node) => node.id !== next.id && node.data.noteId !== note.id,
+        );
+        return [...without, next];
+      });
+    },
+    [setNodes],
+  );
+
+  const pushCreateCommand = useCallback(
+    (created: NoteDetail, payload: NoteCreate) => {
+      let currentId = created.id;
+      push({
+        label: "create",
+        undo: async () => {
+          await deleteNote(currentId);
+          removeByNoteId(currentId);
+        },
+        redo: async () => {
+          const again = await createNote(payload);
+          currentId = again.id;
+          addOrReplace(again);
+        },
+      });
+    },
+    [addOrReplace, push, removeByNoteId],
+  );
+
+  const updateText = useCallback(
+    (nodeId: string, text: string) => {
+      setNodes((current) =>
+        current.map((node) =>
+          node.id === nodeId ? { ...node, data: { ...node.data, text } } : node,
+        ),
+      );
+    },
+    [setNodes],
+  );
+
+  const stopEditing = useCallback(
+    (nodeId: string, extra?: Partial<BoardNoteNodeType["data"]>) => {
+      setNodes((current) =>
+        current.map((item) =>
+          item.id === nodeId
+            ? {
+                ...item,
+                data: { ...item.data, ...extra, editing: false },
+                draggable: true,
+              }
+            : item,
+        ),
+      );
+    },
+    [setNodes],
+  );
+
+  const commitEdit = useCallback(
+    (nodeId: string, text: string) => {
+      if (committing.current.has(nodeId)) {
+        return;
+      }
+      const node = nodesRef.current.find((item) => item.id === nodeId);
+      if (!node || !node.data.editing) {
+        return;
+      }
+      const parsed = splitNoteText(text);
+      if (!parsed && node.data.noteId < 0) {
+        window.setTimeout(() => {
+          const current = nodesRef.current.find((item) => item.id === nodeId);
+          if (!current || current.data.noteId >= 0 || !current.data.editing) {
+            return;
+          }
+          if (splitNoteText(current.data.text)) {
+            return;
+          }
+          if (
+            document.activeElement instanceof HTMLTextAreaElement &&
+            document.activeElement.classList.contains("board-note-editor")
+          ) {
+            return;
+          }
+          removeByNoteId(current.data.noteId, nodeId);
+        }, 50);
+        return;
+      }
+      committing.current.add(nodeId);
+      const finish = () => {
+        committing.current.delete(nodeId);
+      };
+
+      if (!parsed) {
+        const snapshot: NoteCreate = {
+          title: node.data.title,
+          source: node.data.source,
+          raw_text: node.data.rawText || node.data.title,
+          x: node.position.x,
+          y: node.position.y,
+        };
+        let currentId = node.data.noteId;
+        void deleteNote(currentId)
+          .then(() => {
+            removeByNoteId(currentId, nodeId);
+            push({
+              label: "delete",
+              undo: async () => {
+                const restored = await createNote(snapshot);
+                currentId = restored.id;
+                addOrReplace(restored);
+              },
+              redo: async () => {
+                await deleteNote(currentId);
+                removeByNoteId(currentId);
+              },
+            });
+          })
+          .catch(() => {
+            setNodes((current) =>
+              current.map((item) =>
+                item.id === nodeId
+                  ? { ...item, data: { ...item.data, editing: true }, draggable: false }
+                  : item,
+              ),
+            );
+          })
+          .finally(finish);
+        return;
+      }
+
+      stopEditing(nodeId, { title: parsed.title, text });
+
+      if (node.data.noteId < 0) {
+        const payload: NoteCreate = {
+          title: parsed.title,
+          source: "",
+          raw_text: parsed.raw_text,
+          x: node.position.x,
+          y: node.position.y,
+        };
+        void createNote(payload)
+          .then((created) => {
+            removeByNoteId(node.data.noteId, nodeId);
+            addOrReplace(created);
+            pushCreateCommand(created, {
+              ...payload,
+              x: created.x,
+              y: created.y,
+            });
+          })
+          .catch(() => {
+            setError("Could not save that note.");
+            removeByNoteId(node.data.noteId, nodeId);
+          })
+          .finally(finish);
+        return;
+      }
+
+      const prevTitle = node.data.title;
+      const prevRaw = node.data.rawText || prevTitle;
+      if (prevTitle === parsed.title && prevRaw === parsed.raw_text) {
+        finish();
+        return;
+      }
+      const noteId = node.data.noteId;
+      void patchNote(noteId, { title: parsed.title, raw_text: parsed.raw_text })
+        .then((updated) => {
+          addOrReplace(updated);
+          push({
+            label: "edit",
+            undo: async () => {
+              const restored = await patchNote(noteId, {
+                title: prevTitle,
+                raw_text: prevRaw,
+              });
+              addOrReplace(restored);
+            },
+            redo: async () => {
+              const again = await patchNote(noteId, {
+                title: parsed.title,
+                raw_text: parsed.raw_text,
+              });
+              addOrReplace(again);
+            },
+          });
+        })
+        .catch(() => {
+          setError("Could not update that note.");
+          stopEditing(nodeId, { text: node.data.text, title: prevTitle });
+        })
+        .finally(finish);
+    },
+    [addOrReplace, push, pushCreateCommand, removeByNoteId, setNodes, stopEditing],
+  );
+
+  const startEdit = useCallback(
+    (nodeId: string) => {
+      const open = nodesRef.current.find((item) => item.data.editing && item.id !== nodeId);
+      if (open) {
+        commitEdit(open.id, open.data.text);
+      }
+      setNodes((current) =>
+        current.map((item) =>
+          item.id === nodeId
+            ? { ...item, data: { ...item.data, editing: true }, draggable: false }
+            : item,
+        ),
+      );
+    },
+    [commitEdit, setNodes],
+  );
+
+  const spawnDraft = useCallback(
+    (position: { x: number; y: number }) => {
+      const open = nodesRef.current.find((item) => item.data.editing);
+      if (open) {
+        commitEdit(open.id, open.data.text);
+      }
+      const noteId = draftSeq.current;
+      draftSeq.current -= 1;
+      const id = `draft-${noteId}`;
+      const maxZ = Math.max(0, ...nodesRef.current.map((item) => item.data.z));
+      setNodes((current) => [
+        ...current.map((item) =>
+          item.data.editing
+            ? { ...item, data: { ...item.data, editing: false }, draggable: true }
+            : item,
+        ),
+        {
+          id,
+          type: "boardNote" as const,
+          position,
+          zIndex: maxZ + 1,
+          data: {
+            title: "",
+            source: "",
+            rawText: "",
+            noteId,
+            color: null,
+            z: maxZ + 1,
+            text: "",
+            editing: true,
+          },
+          draggable: false,
+        },
+      ]);
+    },
+    [commitEdit, setNodes],
+  );
+
+  const persistPasted = useCallback(
+    (position: { x: number; y: number }, text: string) => {
+      const parsed = splitNoteText(text);
+      if (!parsed) {
+        return;
+      }
+      const payload: NoteCreate = {
+        title: parsed.title,
+        source: "",
+        raw_text: parsed.raw_text,
+        x: position.x,
+        y: position.y,
+      };
+      void createNote(payload)
+        .then((created) => {
+          addOrReplace(created);
+          pushCreateCommand(created, { ...payload, x: created.x, y: created.y });
+        })
+        .catch(() => {
+          setError("Could not save the pasted note.");
+        });
+    },
+    [addOrReplace, pushCreateCommand],
+  );
+
+  const session = useMemo<BoardSession>(
+    () => ({ startEdit, updateText, commitEdit }),
+    [commitEdit, startEdit, updateText],
+  );
+
+  const onPaneClick = useCallback(
+    (event: MouseEvent) => {
+      const now = Date.now();
+      const isDouble = now - lastPaneTap.current < 350;
+      lastPaneTap.current = isDouble ? 0 : now;
+      if (!isDouble) {
+        return;
+      }
+      spawnDraft(screenToFlowPosition({ x: event.clientX, y: event.clientY }));
+    },
+    [screenToFlowPosition, spawnDraft],
+  );
+
+  const spawnAtViewCenter = useCallback(() => {
+    const canvas = document.querySelector(".board-canvas");
+    if (!(canvas instanceof HTMLElement)) {
+      spawnDraft({ x: 240, y: 180 });
+      return;
+    }
+    const box = canvas.getBoundingClientRect();
+    spawnDraft(
+      screenToFlowPosition({
+        x: box.left + box.width / 2,
+        y: box.top + box.height / 2,
+      }),
+    );
+  }, [screenToFlowPosition, spawnDraft]);
+
   useEffect(() => {
     function onKey(event: KeyboardEvent): void {
       const meta = event.metaKey || event.ctrlKey;
       if (!meta || event.key.toLowerCase() !== "z") {
         return;
       }
-      const target = event.target;
-      if (
-        target instanceof HTMLElement &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable)
-      ) {
+      if (isTypingTarget(event.target)) {
         return;
       }
       event.preventDefault();
@@ -219,18 +573,12 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
       if (event.metaKey || event.ctrlKey || event.altKey) {
         return;
       }
-      const target = event.target;
-      if (
-        target instanceof HTMLElement &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable)
-      ) {
+      if (isTypingTarget(event.target)) {
         return;
       }
       const step = event.shiftKey ? 80 : 24;
-      const selected = nodesRef.current.find((node) => node.selected);
-      if (!selected) {
+      const selected = nodesRef.current.find((node) => node.selected && !node.data.editing);
+      if (!selected || selected.data.noteId < 0) {
         return;
       }
       let dx = 0;
@@ -252,18 +600,46 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
         y: selected.position.y,
         z: selected.data.z,
       };
-      moveNote(selected.data.noteId, from, { x: from.x + dx, y: from.y + dy, z: from.z });
+      moveNote(selected.data.noteId, from, {
+        x: from.x + dx,
+        y: from.y + dy,
+        z: from.z,
+      });
+    }
+    function onPaste(event: ClipboardEvent): void {
+      if (isTypingTarget(event.target)) {
+        return;
+      }
+      const text = event.clipboardData?.getData("text/plain") ?? "";
+      if (!splitNoteText(text)) {
+        return;
+      }
+      event.preventDefault();
+      const canvas = document.querySelector(".board-canvas");
+      let position = { x: 240, y: 180 };
+      if (lastPointer.current) {
+        position = screenToFlowPosition(lastPointer.current);
+      } else if (canvas instanceof HTMLElement) {
+        const box = canvas.getBoundingClientRect();
+        position = screenToFlowPosition({
+          x: box.left + box.width / 2,
+          y: box.top + box.height / 2,
+        });
+      }
+      persistPasted(position, text);
     }
     window.addEventListener("keydown", onKey);
     window.addEventListener("keydown", onNudge);
+    window.addEventListener("paste", onPaste);
     return () => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("keydown", onNudge);
+      window.removeEventListener("paste", onPaste);
     };
-  }, [moveNote, redo, undo]);
+  }, [moveNote, persistPasted, redo, screenToFlowPosition, undo]);
 
   return (
-    <>
+    <BoardSessionContext.Provider value={session}>
       <div className="board-toolbar">
         <p className="repo-count">{loading ? "Loading board…" : `${nodes.length} notes`}</p>
         <div className="board-toolbar-actions">
@@ -276,18 +652,26 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
         </div>
       </div>
       {error ? <p className="form-error">{error}</p> : null}
-      <div className="board-canvas" role="application" aria-label="Board canvas">
+      <div
+        className="board-canvas"
+        role="application"
+        aria-label="Board canvas"
+        onPointerMove={(event) => {
+          lastPointer.current = { x: event.clientX, y: event.clientY };
+        }}
+      >
         <ReactFlow
           nodes={nodes}
           onNodesChange={onNodesChange}
           nodeTypes={nodeTypes}
           onNodeDragStart={onNodeDragStart}
           onNodeDragStop={onNodeDragStop}
+          onPaneClick={onPaneClick}
           minZoom={0.2}
           maxZoom={1.8}
           defaultViewport={{ x: 0, y: 0, zoom: 1 }}
           nodesDraggable
-          nodeDragThreshold={0}
+          nodeDragThreshold={1}
           nodesConnectable={false}
           elementsSelectable
           panOnDrag
@@ -303,13 +687,22 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
           <Background gap={24} />
           <Controls showInteractive={false} />
         </ReactFlow>
+        <button
+          type="button"
+          className="board-pad"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={spawnAtViewCenter}
+          aria-label="Tear off a new note"
+        >
+          New note
+        </button>
         {!loading && nodes.length === 0 ? (
           <p className="board-placeholder board-placeholder-overlay">
-            No notes yet. Capture one, then return here.
+            Double-click empty space to write a note.
           </p>
         ) : null}
       </div>
-    </>
+    </BoardSessionContext.Provider>
   );
 }
 

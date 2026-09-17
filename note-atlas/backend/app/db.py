@@ -229,6 +229,10 @@ def create_note(payload: NoteCreate) -> NoteDetail:
     try:
         index = int(conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0])
         x, y = grid_position(index)
+        if payload.x is not None:
+            x = payload.x
+        if payload.y is not None:
+            y = payload.y
         cursor = conn.execute(
             """
             INSERT INTO notes (
@@ -341,7 +345,7 @@ def _detail_fields(row: sqlite3.Row) -> dict[str, object]:
 
 
 def patch_note(note_id: int, patch: NotePatch) -> NoteDetail | None:
-    """Apply a partial spatial/style update. Returns None if the note is missing."""
+    """Apply a partial update. Returns None if the note is missing."""
     if get_note(note_id) is None:
         return None
     updates = patch.model_dump(exclude_unset=True)
@@ -361,6 +365,20 @@ def patch_note(note_id: int, patch: NotePatch) -> NoteDetail | None:
         finally:
             conn.close()
     return get_note(note_id)
+
+
+def delete_note(note_id: int) -> bool:
+    """Remove a note, its chunks, and cascaded children. False if missing."""
+    if get_note(note_id) is None:
+        return False
+    delete_chunks_for_note(note_id)
+    conn = get_connection()
+    try:
+        cursor = conn.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
 
 
 def create_connection(payload: ConnectionCreate) -> Connection:

@@ -56,6 +56,32 @@ def test_patch_note_position_and_style(
     assert missing.status_code == 404
 
 
+def test_patch_title_and_delete_note(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    created = client.post(
+        "/notes",
+        json={"title": "Draft", "source": "", "raw_text": "hello", "x": 400.0, "y": 300.0},
+    ).json()
+    assert created["x"] == 400.0
+    assert created["y"] == 300.0
+    note_id = created["id"]
+
+    patched = client.patch(
+        f"/notes/{note_id}",
+        json={"title": "Renamed", "raw_text": "hello\nworld"},
+    )
+    assert patched.status_code == 200
+    assert patched.json()["title"] == "Renamed"
+    assert patched.json()["raw_text"] == "hello\nworld"
+
+    deleted = client.delete(f"/notes/{note_id}")
+    assert deleted.status_code == 204
+    assert client.get(f"/notes/{note_id}").status_code == 404
+    assert client.delete(f"/notes/{note_id}").status_code == 404
+
+
 def test_connections_unordered_unique_and_delete(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

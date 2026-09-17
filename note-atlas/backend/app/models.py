@@ -15,6 +15,8 @@ class NoteCreate(BaseModel):
     title: str = Field(min_length=1)
     source: str = ""
     raw_text: str = Field(min_length=1)
+    x: float | None = None
+    y: float | None = None
 
 
 class NoteSummary(BaseModel):
@@ -59,7 +61,7 @@ class NoteDetail(NoteSummary):
 
 
 class NotePatch(BaseModel):
-    """Partial spatial/style update. Unset fields are left unchanged."""
+    """Partial update. Unset fields are left unchanged."""
 
     x: float | None = None
     y: float | None = None
@@ -68,6 +70,9 @@ class NotePatch(BaseModel):
     kind: NoteKind | None = None
     pinned: bool | None = None
     ink_json: str | None = None
+    title: str | None = Field(default=None, min_length=1)
+    source: str | None = None
+    raw_text: str | None = Field(default=None, min_length=1)
 
 
 class ConnectionCreate(BaseModel):
