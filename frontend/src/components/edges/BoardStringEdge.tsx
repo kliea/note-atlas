@@ -1,7 +1,7 @@
 import { BaseEdge, EdgeLabelRenderer, type ConnectionLineComponentProps, type Edge, type EdgeProps } from "@xyflow/react";
 import { saggingString } from "../../boardString";
 import { useContext } from "react";
-import { BoardSessionContext } from "../nodes/BoardNoteNode";
+import { BoardSessionContext } from "../nodes/BoardSession";
 
 export type BoardStringData = {
   connectionId: number;

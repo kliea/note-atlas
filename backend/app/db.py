@@ -19,11 +19,13 @@ from app.models import (
     NotePatch,
     NoteSummary,
     Point,
+    PointAddition,
+    PointPatch,
     Tag,
     Topic,
 )
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _V1_STATEMENTS = (
     """
@@ -124,7 +126,7 @@ def _load_sqlite_vec(conn: sqlite3.Connection) -> None:
 
 
 def migrate(conn: sqlite3.Connection | None = None) -> None:
-    """Apply pending schema versions (1 notes, 2 chunks, 3 space, 4 extract_status)."""
+    """Apply pending schema versions (1 notes, 2 chunks, 3 space, 4 extract_status, 5 point context)."""
     owns_connection = conn is None
     if conn is None:
         conn = get_connection()
@@ -153,6 +155,9 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
         if 4 not in applied:
             _migrate_v4(conn)
             conn.execute("INSERT INTO schema_migrations (version) VALUES (4)")
+        if 5 not in applied:
+            _migrate_v5(conn)
+            conn.execute("INSERT INTO schema_migrations (version) VALUES (5)")
         conn.commit()
     finally:
         if owns_connection:
@@ -160,7 +165,7 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
 
 
 def migrate_down(target_version: int, conn: sqlite3.Connection | None = None) -> None:
-    """Roll schema back to target_version. v4 drops extract_status; v3 drops space."""
+    """Roll schema back to target_version. v5 drops point context; v4 drops extract_status; v3 drops space."""
     if target_version < 2:
         raise ValueError("cannot roll back below schema version 2 (chunks + sqlite-vec)")
     owns_connection = conn is None
@@ -173,6 +178,9 @@ def migrate_down(target_version: int, conn: sqlite3.Connection | None = None) ->
             raise ValueError(
                 f"target version {target_version} is ahead of applied {current}"
             )
+        if 5 in applied and target_version < 5:
+            _downgrade_v5(conn)
+            conn.execute("DELETE FROM schema_migrations WHERE version = 5")
         if 4 in applied and target_version < 4:
             _downgrade_v4(conn)
             conn.execute("DELETE FROM schema_migrations WHERE version = 4")
@@ -238,6 +246,24 @@ def _downgrade_v4(conn: sqlite3.Connection) -> None:
     existing = _column_names(conn, "notes")
     if "extract_status" in existing:
         conn.execute("ALTER TABLE notes DROP COLUMN extract_status")
+
+
+def _migrate_v5(conn: sqlite3.Connection) -> None:
+    existing = _column_names(conn, "points")
+    if "context" not in existing:
+        conn.execute("ALTER TABLE points ADD COLUMN context TEXT")
+    if "context_status" not in existing:
+        conn.execute(
+            "ALTER TABLE points ADD COLUMN context_status TEXT DEFAULT 'none'"
+        )
+
+
+def _downgrade_v5(conn: sqlite3.Connection) -> None:
+    existing = _column_names(conn, "points")
+    if "context_status" in existing:
+        conn.execute("ALTER TABLE points DROP COLUMN context_status")
+    if "context" in existing:
+        conn.execute("ALTER TABLE points DROP COLUMN context")
 
 
 def init_db() -> None:
@@ -533,7 +559,7 @@ def _load_topics(conn: sqlite3.Connection, note_id: int) -> list[Topic]:
         topic_id = int(row["id"])
         point_rows = conn.execute(
             """
-            SELECT id, topic_id, text, order_idx
+            SELECT id, topic_id, text, order_idx, context, context_status
             FROM points
             WHERE topic_id = ?
             ORDER BY order_idx ASC, id ASC
@@ -555,11 +581,81 @@ def _load_topics(conn: sqlite3.Connection, note_id: int) -> list[Topic]:
                 note_id=row["note_id"],
                 title=row["title"],
                 order_idx=row["order_idx"],
-                points=[Point.model_validate(dict(p)) for p in point_rows],
+                points=[Point.model_validate(_point_fields(p)) for p in point_rows],
                 tags=[Tag.model_validate(dict(t)) for t in tag_rows],
             )
         )
     return topics
+
+
+def _point_fields(row: sqlite3.Row) -> dict[str, object]:
+    return {
+        "id": row["id"],
+        "topic_id": row["topic_id"],
+        "text": row["text"],
+        "order_idx": row["order_idx"],
+        "context": row["context"],
+        "context_status": row["context_status"] or "none",
+    }
+
+
+def get_point(point_id: int) -> Point | None:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT id, topic_id, text, order_idx, context, context_status
+            FROM points
+            WHERE id = ?
+            """,
+            (point_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return Point.model_validate(_point_fields(row))
+    finally:
+        conn.close()
+
+
+def apply_point_additions(additions: list[PointAddition]) -> None:
+    """Write suggested context onto existing points. Never updates `text`."""
+    if not additions:
+        return
+    conn = get_connection()
+    try:
+        for item in additions:
+            conn.execute(
+                """
+                UPDATE points
+                SET context = ?, context_status = 'suggested'
+                WHERE id = ?
+                """,
+                (item.context, item.point_id),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def patch_point(point_id: int, patch: PointPatch) -> Point | None:
+    """Update context text and/or status. Returns None if the point is missing."""
+    if get_point(point_id) is None:
+        return None
+    updates = patch.model_dump(exclude_unset=True)
+    if updates:
+        assignments = ", ".join(f"{column} = ?" for column in updates)
+        values = list(updates.values())
+        values.append(point_id)
+        conn = get_connection()
+        try:
+            conn.execute(
+                f"UPDATE points SET {assignments} WHERE id = ?",
+                values,
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    return get_point(point_id)
 
 
 def list_note_ids() -> list[int]:

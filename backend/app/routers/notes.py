@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, Response
 
 from pydantic import ValidationError
 
-from app.ambient import schedule_extraction
+from app.ambient import schedule_enrichment, schedule_extraction
 from app.db import (
     create_note,
     delete_chunks_for_note,
@@ -161,7 +161,7 @@ def delete_note_by_id(note_id: int) -> None:
 
 
 @router.post("/{note_id}/extract", response_model=NoteDetail)
-def extract_note(note_id: int) -> NoteDetail:
+def extract_note(note_id: int, background: BackgroundTasks) -> NoteDetail:
     note = get_note(note_id)
     if note is None:
         raise HTTPException(status_code=404, detail="note not found")
@@ -185,6 +185,7 @@ def extract_note(note_id: int) -> NoteDetail:
     finished = get_note(note_id)
     if finished is None:
         raise HTTPException(status_code=500, detail="note vanished during extraction")
+    schedule_enrichment(background, note_id)
     return finished
 
 

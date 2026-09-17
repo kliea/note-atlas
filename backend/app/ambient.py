@@ -1,21 +1,19 @@
-"""Background polish + extraction + indexing triggered by capture and edits."""
+"""Background extraction + enrichment + indexing triggered by capture and edits."""
 
 from __future__ import annotations
 
 from fastapi import BackgroundTasks
 
 from app.db import (
+    apply_point_additions,
     delete_chunks_for_note,
     get_note,
-    patch_note,
     replace_note_extraction,
     set_extract_status,
 )
-from app.extract import ExtractionError, extract_topics
+from app.extract import EnrichmentError, ExtractionError, enrich, extract_topics
 from app.index import index_note
 from app.llm import LlmError
-from app.models import NotePatch
-from app.rephrase import RephraseError, rephrase_jot
 
 _busy: set[int] = set()
 
@@ -23,6 +21,10 @@ _busy: set[int] = set()
 def schedule_extraction(background: BackgroundTasks, note_id: int) -> None:
     set_extract_status(note_id, "pending")
     background.add_task(run_extraction_job, note_id)
+
+
+def schedule_enrichment(background: BackgroundTasks, note_id: int) -> None:
+    background.add_task(run_enrichment_job, note_id)
 
 
 def run_extraction_job(note_id: int) -> None:
@@ -38,17 +40,6 @@ def run_extraction_job(note_id: int) -> None:
             return
         set_extract_status(note_id, "running")
         try:
-            polished = rephrase_jot(note.raw_text, title=note.title)
-            updated = patch_note(
-                note_id,
-                NotePatch(title=polished.title, raw_text=polished.body),
-            )
-            if updated is not None:
-                note = updated
-        except (RephraseError, LlmError):
-            # Keep the original jot and still try topic extraction.
-            pass
-        try:
             payload = extract_topics(note.raw_text)
         except (ExtractionError, LlmError):
             set_extract_status(note_id, "error")
@@ -59,6 +50,22 @@ def run_extraction_job(note_id: int) -> None:
             index_note(note_id)
         except Exception:  # noqa: BLE001
             pass
+        _enrich_note(note_id)
         set_extract_status(note_id, "done")
     finally:
         _busy.discard(note_id)
+
+
+def run_enrichment_job(note_id: int) -> None:
+    _enrich_note(note_id)
+
+
+def _enrich_note(note_id: int) -> None:
+    note = get_note(note_id)
+    if note is None or not note.topics:
+        return
+    try:
+        payload = enrich(note)
+    except (EnrichmentError, LlmError):
+        return
+    apply_point_additions(payload.additions)

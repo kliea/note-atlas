@@ -16,6 +16,8 @@ export type NoteKind = "typed" | "voice" | "ink" | "clip";
 
 export type ExtractStatus = "idle" | "pending" | "running" | "done" | "error";
 
+export type ContextStatus = "none" | "suggested" | "accepted" | "dismissed";
+
 export type NoteCreate = {
   title: string;
   source: string;
@@ -77,6 +79,13 @@ export type Point = {
   topic_id: number;
   text: string;
   order_idx: number;
+  context: string | null;
+  context_status: ContextStatus;
+};
+
+export type PointPatch = {
+  context?: string;
+  context_status?: "accepted" | "dismissed";
 };
 
 export type Tag = {

@@ -191,10 +191,16 @@ def test_v3_migration_roundtrip_on_copy_of_real_db(
         }
         assert 3 in versions
         assert 4 in versions
+        assert 5 in versions
         columns = {
             str(row["name"]) for row in conn.execute("PRAGMA table_info(notes)")
         }
         assert "extract_status" in columns
+        point_columns = {
+            str(row["name"]) for row in conn.execute("PRAGMA table_info(points)")
+        }
+        assert "context" in point_columns
+        assert "context_status" in point_columns
         positions = conn.execute(
             "SELECT id, x, y FROM notes ORDER BY id"
         ).fetchall()
@@ -224,6 +230,9 @@ def test_v3_migration_roundtrip_on_copy_of_real_db(
         names = {str(row[1]) for row in probe.execute("PRAGMA table_info(notes)")}
         assert "x" not in names
         assert "extract_status" not in names
+        point_names = {str(row[1]) for row in probe.execute("PRAGMA table_info(points)")}
+        assert "context" not in point_names
+        assert "context_status" not in point_names
         tables = {
             str(row[0])
             for row in probe.execute(
