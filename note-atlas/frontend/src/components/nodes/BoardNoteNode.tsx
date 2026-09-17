@@ -137,7 +137,9 @@ export function BoardNoteNode({ id, data, selected }: NodeProps<BoardNoteNode>) 
         <p className="board-note-preview">
           {rest.join(" ").slice(0, data.source === "ask" ? 480 : 140)}
         </p>
-      ) : (
+      ) : data.source === "ask" && data.rawText && data.rawText !== first ? (
+        <p className="board-note-preview">{data.rawText.slice(0, 480)}</p>
+      ) : data.source === "ask" ? null : (
         <p className="map-node-source">{data.source || "no source"}</p>
       )}
       {points.length > 0 ? (

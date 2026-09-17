@@ -87,3 +87,20 @@ def test_get_note_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(tmp_path, monkeypatch)
     response = client.get("/notes/999")
     assert response.status_code == 404
+
+
+def test_create_ask_note_skips_background_extract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    created = client.post(
+        "/notes",
+        json={
+            "title": "Why fanout?",
+            "source": "ask",
+            "raw_text": "I don't have that in the notes.",
+        },
+    )
+    assert created.status_code == 201
+    assert created.json()["extract_status"] == "done"
+    assert created.json()["topics"] == []

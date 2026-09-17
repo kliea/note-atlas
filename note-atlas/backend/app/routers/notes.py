@@ -41,7 +41,10 @@ router = APIRouter(prefix="/notes", tags=["notes"])
 @router.post("", response_model=NoteDetail, status_code=201)
 def post_note(payload: NoteCreate, background: BackgroundTasks) -> NoteDetail:
     created = create_note(payload)
-    schedule_extraction(background, created.id)
+    if payload.source == "ask":
+        set_extract_status(created.id, "done")
+    else:
+        schedule_extraction(background, created.id)
     pending = get_note(created.id)
     if pending is None:
         raise HTTPException(status_code=500, detail="note vanished after create")
