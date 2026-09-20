@@ -14,10 +14,10 @@ from app.routers import ask, connections, health, llm, notes, points, search
 
 load_env()
 
-# Vite's default origin. Keep this tight; later phases can widen if needed.
+# Vite's dev origin. Keep this tight; later phases can widen if needed.
 _VITE_ORIGINS = (
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
+    "http://localhost:5252",
+    "http://127.0.0.1:5252",
 )
 
 
