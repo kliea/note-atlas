@@ -6,5 +6,6 @@ __pycache__/
 data/
 node_modules/
 dist/
+.vite/
 .DS_Store
 *.egg-info/

@@ -1,0 +1,246 @@
+#!/usr/bin/env bash
+# Launch Note Atlas backend (8888) and frontend (5252) from any directory.
+set -euo pipefail
+
+API_HOST="127.0.0.1"
+API_PORT="8888"
+WEB_PORT="5252"
+WEB_URL="http://localhost:${WEB_PORT}"
+API_URL="http://${API_HOST}:${API_PORT}"
+
+_resolve_root() {
+  local source="${BASH_SOURCE[0]:-$0}"
+  while [ -L "$source" ]; do
+    local dir
+    dir="$(cd -P "$(dirname "$source")" && pwd)"
+    source="$(readlink "$source")"
+    case "$source" in
+      /*) ;;
+      *) source="$dir/$source" ;;
+    esac
+  done
+  local script_dir
+  script_dir="$(cd -P "$(dirname "$source")" && pwd)"
+  cd "$script_dir/.." && pwd
+}
+
+ROOT="$(_resolve_root)"
+API_PID=""
+WEB_PID=""
+
+usage() {
+  cat <<EOF
+Usage: atlas-ai [start|stop|restart|status|install]
+
+  start     Run backend and frontend together (default)
+  stop      Stop whatever is listening on ${API_PORT} and ${WEB_PORT}
+  restart   Stop, then start
+  status    Show whether each server is up
+  install   Put this command on your PATH as atlas-ai
+
+Ctrl+C in the start terminal stops both.
+EOF
+}
+
+die() {
+  printf 'atlas-ai: %s\n' "$*" >&2
+  exit 1
+}
+
+listen_pids() {
+  lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true
+}
+
+port_up() {
+  local pids
+  pids="$(listen_pids "$1")"
+  [ -n "$pids" ]
+}
+
+kill_port() {
+  local port="$1"
+  local pids
+  pids="$(listen_pids "$port")"
+  [ -z "$pids" ] && return 0
+  # shellcheck disable=SC2086
+  kill $pids 2>/dev/null || true
+  sleep 0.4
+  pids="$(listen_pids "$port")"
+  [ -z "$pids" ] && return 0
+  # shellcheck disable=SC2086
+  kill -9 $pids 2>/dev/null || true
+}
+
+prefix_logs() {
+  local tag="$1"
+  while IFS= read -r line || [ -n "$line" ]; do
+    printf '[%s] %s\n' "$tag" "$line"
+  done
+}
+
+python_bin() {
+  local venv="$ROOT/backend/.venv/bin/python"
+  [ -x "$venv" ] || die "missing $venv — create the backend venv first"
+  printf '%s\n' "$venv"
+}
+
+cleanup() {
+  local code=$?
+  trap - EXIT INT TERM
+  [ -n "$API_PID" ] && kill "$API_PID" 2>/dev/null || true
+  [ -n "$WEB_PID" ] && kill "$WEB_PID" 2>/dev/null || true
+  kill_port "$API_PORT"
+  kill_port "$WEB_PORT"
+  wait 2>/dev/null || true
+  exit "$code"
+}
+
+cmd_stop() {
+  kill_port "$API_PORT"
+  kill_port "$WEB_PORT"
+  printf 'Stopped backend :%s and frontend :%s\n' "$API_PORT" "$WEB_PORT"
+}
+
+cmd_status() {
+  if port_up "$API_PORT"; then
+    printf 'backend  %s  up\n' "$API_URL"
+  else
+    printf 'backend  %s  down\n' "$API_URL"
+  fi
+  if port_up "$WEB_PORT"; then
+    printf 'frontend %s  up\n' "$WEB_URL"
+  else
+    printf 'frontend %s  down\n' "$WEB_URL"
+  fi
+}
+
+cmd_install() {
+  local script="$ROOT/scripts/atlas-ai"
+  chmod +x "$script"
+
+  local bin_dir="${HOME}/.local/bin"
+  mkdir -p "$bin_dir"
+  ln -sfn "$script" "$bin_dir/atlas-ai"
+
+  # Homebrew's bin is already on PATH in existing macOS terminals.
+  if [ -d /opt/homebrew/bin ] && [ -w /opt/homebrew/bin ]; then
+    ln -sfn "$script" /opt/homebrew/bin/atlas-ai
+  fi
+
+  local zshrc="${HOME}/.zshrc"
+  local marker="# atlas-ai path"
+  if [ ! -f "$zshrc" ] || ! grep -Fqx "$marker" "$zshrc"; then
+    {
+      printf '\n%s\n' "$marker"
+      printf 'export PATH="$HOME/.local/bin:$PATH"\n'
+      printf 'atlas-ai() { "$HOME/.local/bin/atlas-ai" "$@"; }\n'
+    } >>"$zshrc"
+  elif ! grep -q 'atlas-ai() {' "$zshrc"; then
+    printf 'atlas-ai() { "$HOME/.local/bin/atlas-ai" "$@"; }\n' >>"$zshrc"
+  fi
+
+  printf 'Installed atlas-ai -> %s\n' "$script"
+  hash -r 2>/dev/null || true
+  printf 'Run: atlas-ai\n'
+}
+
+wait_http() {
+  local url="$1"
+  local tries=60
+  local i=0
+  while [ "$i" -lt "$tries" ]; do
+    if command -v curl >/dev/null 2>&1 && curl -sf --max-time 1 "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 0.25
+  done
+  return 1
+}
+
+warn_ollama() {
+  if ! command -v curl >/dev/null 2>&1; then
+    return 0
+  fi
+  if ! curl -sf --max-time 1 "http://127.0.0.1:11434/api/tags" >/dev/null 2>&1; then
+    printf 'warning: Ollama is not reachable at http://127.0.0.1:11434\n' >&2
+  fi
+}
+
+cmd_start() {
+  command -v pnpm >/dev/null 2>&1 || die "pnpm is not on PATH"
+  command -v lsof >/dev/null 2>&1 || die "lsof is required"
+  [ -d "$ROOT/frontend" ] || die "frontend/ not found under $ROOT"
+  [ -d "$ROOT/backend" ] || die "backend/ not found under $ROOT"
+  local python
+  python="$(python_bin)"
+
+  if port_up "$API_PORT" && port_up "$WEB_PORT"; then
+    printf 'Already running.\n'
+    cmd_status
+    if [ "$(uname -s)" = "Darwin" ]; then
+      open "$WEB_URL"
+    fi
+    return 0
+  fi
+
+  if port_up "$API_PORT"; then
+    die "port ${API_PORT} is already in use — run: atlas-ai stop"
+  fi
+  if port_up "$WEB_PORT"; then
+    die "port ${WEB_PORT} is already in use — run: atlas-ai stop"
+  fi
+
+  warn_ollama
+  trap cleanup EXIT INT TERM
+
+  printf 'Starting backend %s\n' "$API_URL"
+  (
+    cd "$ROOT/backend"
+    exec "$python" -m uvicorn app.main:app --host "$API_HOST" --port "$API_PORT" --workers 1
+  ) 2>&1 | prefix_logs api &
+  API_PID=$!
+
+  printf 'Starting frontend %s\n' "$WEB_URL"
+  (
+    cd "$ROOT/frontend"
+    exec pnpm run dev
+  ) 2>&1 | prefix_logs web &
+  WEB_PID=$!
+
+  if wait_http "${API_URL}/health"; then
+    printf 'Backend ready.\n'
+  else
+    printf 'warning: backend did not answer /health yet\n' >&2
+  fi
+  if wait_http "$WEB_URL"; then
+    printf 'Frontend ready.\n'
+  else
+    printf 'warning: frontend did not answer yet\n' >&2
+  fi
+
+  if [ "$(uname -s)" = "Darwin" ]; then
+    open "$WEB_URL"
+  fi
+
+  printf 'Open %s  (API %s)  Ctrl+C to stop\n' "$WEB_URL" "$API_URL"
+  wait
+}
+
+cmd="${1:-start}"
+case "$cmd" in
+  start) cmd_start ;;
+  stop) cmd_stop ;;
+  restart)
+    cmd_stop
+    sleep 0.4
+    cmd_start
+    ;;
+  status) cmd_status ;;
+  install) cmd_install ;;
+  -h | --help | help) usage ;;
+  *)
+    usage >&2
+    exit 1
+    ;;
+esac

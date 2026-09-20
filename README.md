@@ -80,7 +80,7 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 pytest
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8888
 ```
 
 3. **Frontend** — in a second terminal:
@@ -91,17 +91,17 @@ pnpm install
 pnpm dev
 ```
 
-4. Open [http://localhost:5173](http://localhost:5173). You land on the canvas.
+4. Open [http://localhost:5252](http://localhost:5252). You land on the canvas.
 
 5. Write a jot and leave the card. It is rewritten into a fuller note, then topics appear. Ask with `/`. Off-topic questions return `I don't have that in the notes.`
 
 Checks:
 
-- `GET http://127.0.0.1:8000/health` → `{"status":"ok"}`
-- `GET http://127.0.0.1:8000/llm/ping` → `reachable: true` when Ollama is up
+- `GET http://127.0.0.1:8888/health` → `{"status":"ok"}`
+- `GET http://127.0.0.1:8888/llm/ping` → `reachable: true` when Ollama is up
 - Header pills: `backend = ok`, `model = reachable`
 
-The UI calls `http://127.0.0.1:8000` (override with `VITE_API_BASE` if needed).
+The UI calls `http://127.0.0.1:8888` (override with `VITE_API_BASE` if needed).
 
 Theme defaults to the OS light/dark preference; the header control cycles System → Light → Dark.
 
@@ -110,7 +110,7 @@ Theme defaults to the OS light/dark preference; the header control cycles System
 Chat / extraction / Ask all go through `backend/app/llm.py`. Point `OLLAMA_MODEL` at any instruct model already pulled in Ollama:
 
 ```bash
-OLLAMA_MODEL=qwen3:4b uvicorn app.main:app --host 127.0.0.1 --port 8000
+OLLAMA_MODEL=qwen3:4b uvicorn app.main:app --host 127.0.0.1 --port 8888
 ```
 
 Vector search uses `sentence-transformers` via `backend/app/embed.py`. Change `EMBED_MODEL` to another MiniLM-class model with **384 dimensions**. After changing it, run `POST /reindex`. A different embedding dimension needs a schema bump — do not mix sizes in one `notes.db`.
