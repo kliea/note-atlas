@@ -177,7 +177,31 @@ function isVisibleContext(point: Point): boolean {
 }
 
 function pointsForCard(topics: Topic[]): Point[] {
-  return topics.flatMap((topic) => topic.points).slice(0, 3);
+  const all = topics.flatMap((topic) => topic.points);
+  const withContext = all.filter(isVisibleContext);
+  if (withContext.length === 0) {
+    return all.slice(0, 3);
+  }
+  const chosen: Point[] = [];
+  const seen = new Set<number>();
+  for (const point of withContext) {
+    if (chosen.length >= 3) {
+      break;
+    }
+    chosen.push(point);
+    seen.add(point.id);
+  }
+  for (const point of all) {
+    if (chosen.length >= 3) {
+      break;
+    }
+    if (seen.has(point.id)) {
+      continue;
+    }
+    chosen.push(point);
+    seen.add(point.id);
+  }
+  return chosen;
 }
 
 function PointContext({

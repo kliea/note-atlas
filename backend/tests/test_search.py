@@ -6,11 +6,12 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app.db import init_db, replace_note_extraction
+from app.db import apply_point_additions, get_note, init_db, replace_note_extraction
 from app.embed import EMBEDDING_DIM
 from app.index import index_note, reindex_all, search
 from app.main import app
-from app.models import ExtractedTopic
+from app.models import ExtractedTopic, PointAddition
+from app.rag import plan_ask
 
 
 def _axis(index: int) -> list[float]:
@@ -184,3 +185,95 @@ def test_reindex_rebuilds_cleanly(
     ranked = client.get("/search", params={"q": "leaf node"})
     assert ranked.status_code == 200
     assert ranked.json()[0]["note_id"] == created["id"]
+
+
+FLYWHEEL = "Traditional SaaS vs AI-as-a-service > flywheel model"
+FLYWHEEL_CONTEXT = (
+    "A flywheel is a loop where usage improves the product, which attracts more usage."
+)
+
+
+def _context_embed(texts: Sequence[str]) -> list[list[float]]:
+    encoded: list[list[float]] = []
+    for text in texts:
+        lower = text.lower()
+        if "loop where usage" in lower:
+            encoded.append(_axis(0))
+        else:
+            encoded.append(_axis(2))
+    return encoded
+
+
+def test_index_includes_suggested_point_context(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "notes.db"))
+    monkeypatch.setattr("app.index.embed_texts", _context_embed)
+    init_db()
+    client = TestClient(app)
+    created = client.post(
+        "/notes",
+        json={"title": "Matsuo Lab", "source": "lecture", "raw_text": FLYWHEEL},
+    ).json()
+    replace_note_extraction(
+        created["id"],
+        [
+            ExtractedTopic(
+                title="AI-as-a-Service Models",
+                points=[FLYWHEEL],
+                tags=["ai"],
+            )
+        ],
+    )
+    note = get_note(created["id"])
+    assert note is not None
+    point_id = note.topics[0].points[0].id
+    apply_point_additions([PointAddition(point_id=point_id, context=FLYWHEEL_CONTEXT)])
+
+    index_note(created["id"], embed=_context_embed)
+    query = "loop where usage improves the product"
+    hits = search(query, k=5, embed=_context_embed)
+    assert hits
+    assert "loop where usage" in hits[0].text.lower()
+    plan = plan_ask(query, retrieve=lambda q, k: search(q, k=k, embed=_context_embed))
+    assert plan.grounded is True
+
+
+def test_index_omits_dismissed_point_context(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "notes.db"))
+    monkeypatch.setattr("app.index.embed_texts", _context_embed)
+    init_db()
+    client = TestClient(app)
+    created = client.post(
+        "/notes",
+        json={"title": "Matsuo Lab", "source": "lecture", "raw_text": FLYWHEEL},
+    ).json()
+    replace_note_extraction(
+        created["id"],
+        [
+            ExtractedTopic(
+                title="AI-as-a-Service Models",
+                points=[FLYWHEEL],
+                tags=["ai"],
+            )
+        ],
+    )
+    note = get_note(created["id"])
+    assert note is not None
+    point = note.topics[0].points[0]
+    apply_point_additions([PointAddition(point_id=point.id, context=FLYWHEEL_CONTEXT)])
+    from app.db import patch_point
+    from app.models import PointPatch
+
+    patch_point(point.id, PointPatch(context_status="dismissed"))
+    index_note(created["id"], embed=_context_embed)
+    hits = search("loop where usage improves the product", k=5, embed=_context_embed)
+    assert hits
+    assert "loop where usage" not in hits[0].text.lower()
+    plan = plan_ask(
+        "loop where usage improves the product",
+        retrieve=lambda q, k: search(q, k=k, embed=_context_embed),
+    )
+    assert plan.grounded is False

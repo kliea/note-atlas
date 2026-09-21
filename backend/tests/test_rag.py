@@ -5,7 +5,7 @@ from collections.abc import Iterator
 import pytest
 
 from app.models import Citation, NoteDetail, SearchHit, Topic
-from app.rag import DECLINE_TEXT, AskPlan, build_prompt, plan_ask, stream_answer
+from app.rag import DECLINE_TEXT, AskPlan, build_prompt, lexical_score, plan_ask, stream_answer
 
 
 def _hit(*, score: float, note_id: int = 3, topic_id: int | None = 2) -> SearchHit:
@@ -105,3 +105,45 @@ def test_plan_ask_note_ids_drops_outside_hits(monkeypatch: pytest.MonkeyPatch) -
     declined = plan_ask("fanout?", note_ids=[3], retrieve=only_outside)
     assert declined.grounded is False
     assert declined.citations == []
+
+
+def test_lexical_score_matches_punctuated_title_query() -> None:
+    text = (
+        "MIDV 2020: A Comprehensive Benchmark Dataset for Identity Document Analysis\n"
+        "identity documents recognition"
+    )
+    assert lexical_score("what is midv:2020", text) >= 0.8
+    assert (
+        lexical_score(
+            "what is midv:2020",
+            "MIDV 500: A Comprehensive Benchmark Dataset\n"
+            "https://smartengines.com/wp-content/uploads/2020/04/datasets-of-id-documents-midv-500.pdf",
+        )
+        < 0.8
+    )
+    assert lexical_score("What is the capital of France?", text) < 0.35
+
+
+def test_plan_ask_grounds_low_vector_when_title_matches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    note = NoteDetail(
+        id=13,
+        title="MIDV 2020: A Comprehensive Benchmark Dataset for Identity Document Analysis",
+        source="lecture",
+        created_at="2026-09-21T00:00:00+00:00",
+        raw_text="identity documents recognition",
+        topics=[],
+    )
+    monkeypatch.setattr("app.rag.get_note", lambda _id: note)
+    hit = SearchHit(
+        chunk_id=7,
+        note_id=13,
+        topic_id=None,
+        text="MIDV 2020: A Comprehensive Benchmark Dataset for Identity Document Analysis",
+        score=0.19,
+    )
+    plan = plan_ask("what is midv:2020", retrieve=lambda _q, _k: [hit])
+    assert plan.grounded is True
+    assert plan.citations[0].note_id == 13
+    assert plan.context_hits[0].score >= 0.35

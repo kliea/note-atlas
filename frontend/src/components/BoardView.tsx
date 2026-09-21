@@ -234,6 +234,14 @@ function linkedIdsFor(
   return linked;
 }
 
+function suggestionsReady(node: BoardNoteNodeType): boolean {
+  const status = node.data.extractStatus;
+  return (
+    status === "done" ||
+    (status !== "pending" && status !== "running" && node.data.topics.length > 0)
+  );
+}
+
 function isTypingTarget(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLElement &&
@@ -251,6 +259,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
   const [ghosts, setGhosts] = useState<BoardGhostEdgeType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const origins = useRef(new Map<string, Point>());
   const liftedZ = useRef(new Map<string, number>());
   const fitted = useRef(false);
@@ -573,8 +582,8 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
   );
 
   const loadSuggestions = useCallback(
-    (noteId: number) => {
-      void fetchSuggestions(noteId)
+    (noteId: number): Promise<void> => {
+      return fetchSuggestions(noteId)
         .then((items) => {
           setGhosts((current) => {
             const keep = current.filter(
@@ -604,6 +613,48 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
     },
     [pairLinked],
   );
+
+  const refreshRelatedConnectors = useCallback(() => {
+    const current = nodesRef.current;
+    const selected = current.filter((node) => node.selected && node.data.noteId > 0);
+    const targets = (selected.length > 0 ? selected : current).filter(
+      (node) => node.data.noteId > 0,
+    );
+    const ids = [...new Set(targets.map((node) => node.data.noteId))];
+    if (ids.length === 0) {
+      return;
+    }
+    const idSet = new Set(ids);
+    if (selected.length === 0) {
+      dismissedPairs.current.clear();
+    } else {
+      for (const key of [...dismissedPairs.current]) {
+        const [left, right] = key.split(":").map(Number);
+        if (idSet.has(left) || idSet.has(right)) {
+          dismissedPairs.current.delete(key);
+        }
+      }
+    }
+    for (const id of ids) {
+      suggestedFor.current.delete(id);
+    }
+    const ready = targets.filter(suggestionsReady);
+    if (ready.length === 0) {
+      return;
+    }
+    setError(null);
+    setNotice(
+      selected.length > 0
+        ? `Refreshing related links for ${ready.length} note${ready.length === 1 ? "" : "s"}…`
+        : "Refreshing related links…",
+    );
+    for (const node of ready) {
+      suggestedFor.current.add(node.data.noteId);
+    }
+    void Promise.all(ready.map((node) => loadSuggestions(node.data.noteId))).finally(() => {
+      setNotice(null);
+    });
+  }, [loadSuggestions]);
 
   const mergeExtracted = useCallback(
     (note: NoteDetail) => {
@@ -741,12 +792,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
       if (node.data.noteId < 1) {
         continue;
       }
-      const ready =
-        node.data.extractStatus === "done" ||
-        (node.data.extractStatus !== "pending" &&
-          node.data.extractStatus !== "running" &&
-          node.data.topics.length > 0);
-      if (!ready || suggestedFor.current.has(node.data.noteId)) {
+      if (!suggestionsReady(node) || suggestedFor.current.has(node.data.noteId)) {
         continue;
       }
       suggestedFor.current.add(node.data.noteId);
@@ -1463,6 +1509,16 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
         persistLink(selected[0].data.noteId, selected[1].data.noteId);
         return;
       }
+      if (
+        (event.key === "r" || event.key === "R") &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey
+      ) {
+        event.preventDefault();
+        refreshRelatedConnectors();
+        return;
+      }
       if (event.key === "Backspace" || event.key === "Delete") {
         const selected = nodesRef.current.find(
           (node) => node.selected && node.data.noteId > 0 && !node.data.editing,
@@ -1509,6 +1565,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
     getNodes,
     persistLink,
     push,
+    refreshRelatedConnectors,
     removeByNoteId,
     screenToFlowPosition,
     setNodes,
@@ -1531,7 +1588,9 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
                     : ` · ${edges.length} links`
               }`}
         </p>
-        <p className="board-hint">N new · / ask · ? shortcuts</p>
+        <p className="board-hint" role="status" aria-live="polite">
+          {notice ?? "N new · / ask · R related · ? shortcuts"}
+        </p>
         <div className="board-toolbar-actions">
           <button
             type="button"
@@ -1601,7 +1660,7 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
         className={linkedIds ? "board-canvas has-selection" : "board-canvas"}
         role="application"
         aria-label="Board canvas"
-        aria-keyshortcuts="N / ? L Enter Space"
+        aria-keyshortcuts="N / ? L R Enter Space"
         tabIndex={0}
         onPointerMove={(event) => {
           lastPointer.current = { x: event.clientX, y: event.clientY };

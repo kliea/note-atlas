@@ -599,6 +599,25 @@ def _point_fields(row: sqlite3.Row) -> dict[str, object]:
     }
 
 
+def note_id_for_point(point_id: int) -> int | None:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT topics.note_id
+            FROM points
+            JOIN topics ON topics.id = points.topic_id
+            WHERE points.id = ?
+            """,
+            (point_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return int(row["note_id"])
+    finally:
+        conn.close()
+
+
 def get_point(point_id: int) -> Point | None:
     conn = get_connection()
     try:

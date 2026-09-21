@@ -69,3 +69,8 @@ def _enrich_note(note_id: int) -> None:
     except (EnrichmentError, LlmError):
         return
     apply_point_additions(payload.additions)
+    if payload.additions:
+        try:
+            index_note(note_id)
+        except Exception:  # noqa: BLE001
+            pass

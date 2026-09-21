@@ -27,6 +27,7 @@ The app opens on the **board**. There is no Capture / Repository / Map / Ask chr
 | Shift-drag | Lasso notes |
 | ⌘/Ctrl-click | Add to selection |
 | `L` | Link two selected notes |
+| `R` | Re-fetch related links for the selection, or every note |
 | `/` | Ask (scoped to the selection if any) |
 | `?` | Shortcuts overlay |
 | Backspace / Delete | Delete selected note |
