@@ -1,0 +1,6 @@
+ERROR:pip_audit._virtual_env:internal pip failure: WARNING: Cache entry deserialization failed, entry ignored
+WARNING: Cache entry deserialization failed, entry ignored
+ERROR: Cannot install -r /Users/klinthjeraldmatugas/Documents/DEV/ATLAS/sca-experiment/backend/requirements.txt (line 7) and starlette==0.36.1 because these package versions have conflicting dependencies.
+ERROR: ResolutionImpossible: for help visit https://pip.pypa.io/en/latest/topics/dependency-resolution/#dealing-with-dependency-conflicts
+
+ERROR:pip_audit._cli:Failed to install packages: ['/var/folders/hs/lvct3mrx6vzdfmqj65zt4c8h0000gn/T/tmplbedpy6v/bin/python3.14', '-m', 'pip', 'install', '--no-input', '--keyring-provider=subprocess', '--dry-run', '--report', '/var/folders/hs/lvct3mrx6vzdfmqj65zt4c8h0000gn/T/tmpo6_2pe4e/tmp0fof3thd', '-r', '/Users/klinthjeraldmatugas/Documents/DEV/ATLAS/sca-experiment/backend/requirements.txt']

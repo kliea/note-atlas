@@ -1,0 +1,802 @@
+{
+  "advisories": {
+    "1098094": {
+      "findings": [
+        {
+          "version": "3.0.2",
+          "paths": [
+            ".>micromatch>braces",
+            ".>braces"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1098094,
+      "title": "Uncontrolled resource consumption in braces",
+      "module_name": "braces",
+      "vulnerable_versions": "<3.0.3",
+      "patched_versions": ">=3.0.3",
+      "severity": "high",
+      "cwe": "CWE-400, CWE-1050",
+      "github_advisory_id": "GHSA-grv7-fg5c-xmjg",
+      "url": "https://github.com/advisories/GHSA-grv7-fg5c-xmjg"
+    },
+    "1098681": {
+      "findings": [
+        {
+          "version": "4.0.7",
+          "paths": [
+            ".>micromatch"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1098681,
+      "title": "Regular Expression Denial of Service (ReDoS) in micromatch",
+      "module_name": "micromatch",
+      "vulnerable_versions": "<4.0.8",
+      "patched_versions": ">=4.0.8",
+      "severity": "moderate",
+      "cwe": "CWE-1333",
+      "github_advisory_id": "GHSA-952p-6rrq-rcjv",
+      "url": "https://github.com/advisories/GHSA-952p-6rrq-rcjv"
+    },
+    "1099688": {
+      "findings": [
+        {
+          "version": "5.2.8",
+          "paths": [
+            ".>@vitejs/plugin-react>vite",
+            ".>vite"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1099688,
+      "title": "Vite's `server.fs.deny` is bypassed when using `?import&raw`",
+      "module_name": "vite",
+      "vulnerable_versions": ">=5.2.0 <5.2.14",
+      "patched_versions": ">=5.2.14",
+      "severity": "moderate",
+      "cwe": "CWE-200, CWE-284",
+      "github_advisory_id": "GHSA-9cwx-2883-4wfx",
+      "url": "https://github.com/advisories/GHSA-9cwx-2883-4wfx"
+    },
+    "1099691": {
+      "findings": [
+        {
+          "version": "5.2.8",
+          "paths": [
+            ".>@vitejs/plugin-react>vite",
+            ".>vite"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1099691,
+      "title": "Vite DOM Clobbering gadget found in vite bundled scripts that leads to XSS",
+      "module_name": "vite",
+      "vulnerable_versions": ">=5.2.0 <5.2.14",
+      "patched_versions": ">=5.2.14",
+      "severity": "moderate",
+      "cwe": "CWE-79",
+      "github_advisory_id": "GHSA-64vr-g452-qvp3",
+      "url": "https://github.com/advisories/GHSA-64vr-g452-qvp3"
+    },
+    "1099764": {
+      "findings": [
+        {
+          "version": "4.17.0",
+          "paths": [
+            ".>@vitejs/plugin-react>vite>rollup",
+            ".>rollup",
+            ".>vite>rollup"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1099764,
+      "title": "DOM Clobbering Gadget found in rollup bundled scripts that leads to XSS",
+      "module_name": "rollup",
+      "vulnerable_versions": ">=4.0.0 <4.22.4",
+      "patched_versions": ">=4.22.4",
+      "severity": "high",
+      "cwe": "CWE-79",
+      "github_advisory_id": "GHSA-gcx4-mw62-g8wm",
+      "url": "https://github.com/advisories/GHSA-gcx4-mw62-g8wm"
+    },
+    "1102341": {
+      "findings": [
+        {
+          "version": "0.21.5",
+          "paths": [
+            ".>esbuild",
+            ".>@vitejs/plugin-react>vite>esbuild",
+            ".>vite>esbuild"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1102341,
+      "title": "esbuild enables any website to send any requests to the development server and read the response",
+      "module_name": "esbuild",
+      "vulnerable_versions": "<=0.24.2",
+      "patched_versions": ">=0.25.0",
+      "severity": "moderate",
+      "cwe": "CWE-346",
+      "github_advisory_id": "GHSA-67mh-4wv8-2f99",
+      "url": "https://github.com/advisories/GHSA-67mh-4wv8-2f99"
+    },
+    "1102437": {
+      "findings": [
+        {
+          "version": "5.2.8",
+          "paths": [
+            ".>@vitejs/plugin-react>vite",
+            ".>vite"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1102437,
+      "title": "Websites were able to send any requests to the development server and read the response in vite",
+      "module_name": "vite",
+      "vulnerable_versions": ">=5.0.0 <=5.4.11",
+      "patched_versions": ">=5.4.12",
+      "severity": "moderate",
+      "cwe": "CWE-346, CWE-350, CWE-1385",
+      "github_advisory_id": "GHSA-vg6x-rcgg-rjx6",
+      "url": "https://github.com/advisories/GHSA-vg6x-rcgg-rjx6"
+    },
+    "1103517": {
+      "findings": [
+        {
+          "version": "5.2.8",
+          "paths": [
+            ".>@vitejs/plugin-react>vite",
+            ".>vite"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1103517,
+      "title": "Vite bypasses server.fs.deny when using ?raw??",
+      "module_name": "vite",
+      "vulnerable_versions": ">=5.0.0 <5.4.15",
+      "patched_versions": ">=5.4.15",
+      "severity": "moderate",
+      "cwe": "CWE-200, CWE-284",
+      "github_advisory_id": "GHSA-x574-m823-4x7w",
+      "url": "https://github.com/advisories/GHSA-x574-m823-4x7w"
+    },
+    "1103884": {
+      "findings": [
+        {
+          "version": "5.2.8",
+          "paths": [
+            ".>@vitejs/plugin-react>vite",
+            ".>vite"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1103884,
+      "title": "Vite has an `server.fs.deny` bypass with an invalid `request-target`",
+      "module_name": "vite",
+      "vulnerable_versions": ">=5.0.0 <5.4.18",
+      "patched_versions": ">=5.4.18",
+      "severity": "moderate",
+      "cwe": "CWE-200",
+      "github_advisory_id": "GHSA-356w-63v5-8wf4",
+      "url": "https://github.com/advisories/GHSA-356w-63v5-8wf4"
+    },
+    "1104173": {
+      "findings": [
+        {
+          "version": "5.2.8",
+          "paths": [
+            ".>@vitejs/plugin-react>vite",
+            ".>vite"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1104173,
+      "title": "Vite's server.fs.deny bypassed with /. for files under project root",
+      "module_name": "vite",
+      "vulnerable_versions": ">=5.0.0 <=5.4.18",
+      "patched_versions": ">=5.4.19",
+      "severity": "moderate",
+      "cwe": "CWE-22",
+      "github_advisory_id": "GHSA-859w-5945-r5v3",
+      "url": "https://github.com/advisories/GHSA-859w-5945-r5v3"
+    },
+    "1104202": {
+      "findings": [
+        {
+          "version": "5.2.8",
+          "paths": [
+            ".>@vitejs/plugin-react>vite",
+            ".>vite"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1104202,
+      "title": "Vite allows server.fs.deny to be bypassed with .svg or relative paths",
+      "module_name": "vite",
+      "vulnerable_versions": ">=5.0.0 <5.4.17",
+      "patched_versions": ">=5.4.17",
+      "severity": "moderate",
+      "cwe": "CWE-200, CWE-284",
+      "github_advisory_id": "GHSA-xcj6-pq6g-qj4x",
+      "url": "https://github.com/advisories/GHSA-xcj6-pq6g-qj4x"
+    },
+    "1104664": {
+      "findings": [
+        {
+          "version": "7.0.3",
+          "paths": [
+            ".>cross-spawn"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1104664,
+      "title": "Regular Expression Denial of Service (ReDoS) in cross-spawn",
+      "module_name": "cross-spawn",
+      "vulnerable_versions": ">=7.0.0 <7.0.5",
+      "patched_versions": ">=7.0.5",
+      "severity": "high",
+      "cwe": "CWE-1333",
+      "github_advisory_id": "GHSA-3xgq-45jj-v275",
+      "url": "https://github.com/advisories/GHSA-3xgq-45jj-v275"
+    },
+    "1107323": {
+      "findings": [
+        {
+          "version": "5.2.8",
+          "paths": [
+            ".>@vitejs/plugin-react>vite",
+            ".>vite"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1107323,
+      "title": "Vite middleware may serve files starting with the same name with the public directory",
+      "module_name": "vite",
+      "vulnerable_versions": "<=5.4.19",
+      "patched_versions": ">=5.4.20",
+      "severity": "low",
+      "cwe": "CWE-22, CWE-200, CWE-284",
+      "github_advisory_id": "GHSA-g4jq-h2w9-997c",
+      "url": "https://github.com/advisories/GHSA-g4jq-h2w9-997c"
+    },
+    "1107327": {
+      "findings": [
+        {
+          "version": "5.2.8",
+          "paths": [
+            ".>@vitejs/plugin-react>vite",
+            ".>vite"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1107327,
+      "title": "Vite's `server.fs` settings were not applied to HTML files",
+      "module_name": "vite",
+      "vulnerable_versions": "<=5.4.19",
+      "patched_versions": ">=5.4.20",
+      "severity": "low",
+      "cwe": "CWE-23, CWE-200, CWE-284",
+      "github_advisory_id": "GHSA-jqfw-vq24-v9c3",
+      "url": "https://github.com/advisories/GHSA-jqfw-vq24-v9c3"
+    },
+    "1109131": {
+      "findings": [
+        {
+          "version": "5.2.8",
+          "paths": [
+            ".>@vitejs/plugin-react>vite",
+            ".>vite"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1109131,
+      "title": "vite allows server.fs.deny bypass via backslash on Windows",
+      "module_name": "vite",
+      "vulnerable_versions": ">=5.2.6 <=5.4.20",
+      "patched_versions": ">=5.4.21",
+      "severity": "moderate",
+      "cwe": "CWE-22",
+      "github_advisory_id": "GHSA-93m4-6634-74q7",
+      "url": "https://github.com/advisories/GHSA-93m4-6634-74q7"
+    },
+    "1109563": {
+      "findings": [
+        {
+          "version": "3.3.7",
+          "paths": [
+            ".>postcss>nanoid",
+            ".>nanoid",
+            ".>@vitejs/plugin-react>vite>postcss>nanoid",
+            ".>vite>postcss>nanoid"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1109563,
+      "title": "Predictable results in nanoid generation when given non-integer values",
+      "module_name": "nanoid",
+      "vulnerable_versions": "<3.3.8",
+      "patched_versions": ">=3.3.8",
+      "severity": "moderate",
+      "cwe": "CWE-835",
+      "github_advisory_id": "GHSA-mwcw-c2x4-8c55",
+      "url": "https://github.com/advisories/GHSA-mwcw-c2x4-8c55"
+    },
+    "1112511": {
+      "findings": [
+        {
+          "version": "5.2.8",
+          "paths": [
+            ".>@vitejs/plugin-react>vite",
+            ".>vite"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1112511,
+      "title": "Vite has a `server.fs.deny` bypassed for `inline` and `raw` with `?import` query",
+      "module_name": "vite",
+      "vulnerable_versions": ">=5.0.0 <5.4.16",
+      "patched_versions": ">=5.4.16",
+      "severity": "moderate",
+      "cwe": "CWE-200, CWE-284",
+      "github_advisory_id": "GHSA-4r4m-qw57-chr8",
+      "url": "https://github.com/advisories/GHSA-4r4m-qw57-chr8"
+    },
+    "1112921": {
+      "findings": [
+        {
+          "version": "7.5.1",
+          "paths": [
+            ".>semver",
+            ".>@vitejs/plugin-react>@babel/plugin-transform-react-jsx-self>@babel/core>semver",
+            ".>@vitejs/plugin-react>@babel/plugin-transform-react-jsx-self>@babel/core>@babel/helper-compilation-targets>semver",
+            ".>@vitejs/plugin-react>@babel/plugin-transform-react-jsx-source>@babel/core>semver",
+            ".>@vitejs/plugin-react>@babel/plugin-transform-react-jsx-source>@babel/core>@babel/helper-compilation-targets>semver",
+            ".>@vitejs/plugin-react>@babel/core>semver",
+            ".>@vitejs/plugin-react>@babel/core>@babel/helper-compilation-targets>semver"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1112921,
+      "title": "semver vulnerable to Regular Expression Denial of Service",
+      "module_name": "semver",
+      "vulnerable_versions": ">=7.0.0 <7.5.2",
+      "patched_versions": ">=7.5.2",
+      "severity": "high",
+      "cwe": "CWE-1333",
+      "github_advisory_id": "GHSA-c2qf-rxjj-qqgw",
+      "url": "https://github.com/advisories/GHSA-c2qf-rxjj-qqgw"
+    },
+    "1113515": {
+      "findings": [
+        {
+          "version": "4.17.0",
+          "paths": [
+            ".>@vitejs/plugin-react>vite>rollup",
+            ".>rollup",
+            ".>vite>rollup"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1113515,
+      "title": "Rollup 4 has Arbitrary File Write via Path Traversal",
+      "module_name": "rollup",
+      "vulnerable_versions": ">=4.0.0 <4.59.0",
+      "patched_versions": ">=4.59.0",
+      "severity": "high",
+      "cwe": "CWE-22",
+      "github_advisory_id": "GHSA-mw96-cpmx-2vgc",
+      "url": "https://github.com/advisories/GHSA-mw96-cpmx-2vgc"
+    },
+    "1115549": {
+      "findings": [
+        {
+          "version": "2.3.1",
+          "paths": [
+            ".>micromatch>picomatch",
+            ".>picomatch"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1115549,
+      "title": "Picomatch: Method Injection in POSIX Character Classes causes incorrect Glob Matching",
+      "module_name": "picomatch",
+      "vulnerable_versions": "<2.3.2",
+      "patched_versions": ">=2.3.2",
+      "severity": "moderate",
+      "cwe": "CWE-1321",
+      "github_advisory_id": "GHSA-3v7f-55p6-f55p",
+      "url": "https://github.com/advisories/GHSA-3v7f-55p6-f55p"
+    },
+    "1115552": {
+      "findings": [
+        {
+          "version": "2.3.1",
+          "paths": [
+            ".>micromatch>picomatch",
+            ".>picomatch"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1115552,
+      "title": "Picomatch has a ReDoS vulnerability via extglob quantifiers",
+      "module_name": "picomatch",
+      "vulnerable_versions": "<2.3.2",
+      "patched_versions": ">=2.3.2",
+      "severity": "high",
+      "cwe": "CWE-1333",
+      "github_advisory_id": "GHSA-c2c7-rcm5-vvqj",
+      "url": "https://github.com/advisories/GHSA-c2c7-rcm5-vvqj"
+    },
+    "1116229": {
+      "findings": [
+        {
+          "version": "5.2.8",
+          "paths": [
+            ".>@vitejs/plugin-react>vite",
+            ".>vite"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1116229,
+      "title": "Vite Vulnerable to Path Traversal in Optimized Deps `.map` Handling",
+      "module_name": "vite",
+      "vulnerable_versions": "<=6.4.1",
+      "patched_versions": ">=6.4.2",
+      "severity": "moderate",
+      "cwe": "CWE-22, CWE-200",
+      "github_advisory_id": "GHSA-4w7w-66w2-5vf9",
+      "url": "https://github.com/advisories/GHSA-4w7w-66w2-5vf9"
+    },
+    "1117015": {
+      "findings": [
+        {
+          "version": "8.4.38",
+          "paths": [
+            ".>postcss",
+            ".>@vitejs/plugin-react>vite>postcss",
+            ".>vite>postcss"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1117015,
+      "title": "PostCSS has XSS via Unescaped </style> in its CSS Stringify Output",
+      "module_name": "postcss",
+      "vulnerable_versions": "<8.5.10",
+      "patched_versions": ">=8.5.10",
+      "severity": "moderate",
+      "cwe": "CWE-79",
+      "github_advisory_id": "GHSA-qx2v-qp2m-jg93",
+      "url": "https://github.com/advisories/GHSA-qx2v-qp2m-jg93"
+    },
+    "1117420": {
+      "findings": [
+        {
+          "version": "7.23.0",
+          "paths": [
+            ".>@babel/traverse",
+            ".>@vitejs/plugin-react>@babel/plugin-transform-react-jsx-self>@babel/core>@babel/traverse",
+            ".>@vitejs/plugin-react>@babel/plugin-transform-react-jsx-self>@babel/core>@babel/helper-module-transforms>@babel/helper-module-imports>@babel/traverse",
+            ".>@vitejs/plugin-react>@babel/plugin-transform-react-jsx-self>@babel/core>@babel/helper-module-transforms>@babel/traverse",
+            ".>@vitejs/plugin-react>@babel/plugin-transform-react-jsx-source>@babel/core>@babel/traverse",
+            ".>@vitejs/plugin-react>@babel/plugin-transform-react-jsx-source>@babel/core>@babel/helper-module-transforms>@babel/helper-module-imports>@babel/traverse",
+            ".>@vitejs/plugin-react>@babel/plugin-transform-react-jsx-source>@babel/core>@babel/helper-module-transforms>@babel/traverse",
+            ".>@vitejs/plugin-react>@babel/core>@babel/traverse",
+            ".>@vitejs/plugin-react>@babel/core>@babel/helper-module-transforms>@babel/helper-module-imports>@babel/traverse",
+            ".>@vitejs/plugin-react>@babel/core>@babel/helper-module-transforms>@babel/traverse"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1117420,
+      "title": "Babel vulnerable to arbitrary code execution when compiling specifically crafted malicious code",
+      "module_name": "@babel/traverse",
+      "vulnerable_versions": "<7.23.2",
+      "patched_versions": ">=7.23.2",
+      "severity": "critical",
+      "cwe": "CWE-184, CWE-697",
+      "github_advisory_id": "GHSA-67hx-6x53-jw92",
+      "url": "https://github.com/advisories/GHSA-67hx-6x53-jw92"
+    },
+    "1120061": {
+      "findings": [
+        {
+          "version": "5.2.8",
+          "paths": [
+            ".>@vitejs/plugin-react>vite",
+            ".>vite"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1120061,
+      "title": "launch-editor vulnerable to command injection via the crafted request on Windows",
+      "module_name": "vite",
+      "vulnerable_versions": "<=5.4.8",
+      "patched_versions": ">=5.4.9",
+      "severity": "high",
+      "cwe": "CWE-77",
+      "github_advisory_id": "GHSA-c27g-q93r-2cwf",
+      "url": "https://github.com/advisories/GHSA-c27g-q93r-2cwf"
+    },
+    "1120784": {
+      "findings": [
+        {
+          "version": "5.2.8",
+          "paths": [
+            ".>@vitejs/plugin-react>vite",
+            ".>vite"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1120784,
+      "title": "launch-editor: NTLMv2 hash disclosure via UNC path handling on Windows",
+      "module_name": "vite",
+      "vulnerable_versions": "<=6.4.2",
+      "patched_versions": ">=6.4.3",
+      "severity": "moderate",
+      "cwe": "CWE-73, CWE-522",
+      "github_advisory_id": "GHSA-v6wh-96g9-6wx3",
+      "url": "https://github.com/advisories/GHSA-v6wh-96g9-6wx3"
+    },
+    "1123525": {
+      "findings": [
+        {
+          "version": "5.2.8",
+          "paths": [
+            ".>@vitejs/plugin-react>vite",
+            ".>vite"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1123525,
+      "title": "vite: `server.fs.deny` bypass on Windows alternate paths",
+      "module_name": "vite",
+      "vulnerable_versions": "<=6.4.2",
+      "patched_versions": ">=6.4.3",
+      "severity": "high",
+      "cwe": "CWE-22, CWE-200",
+      "github_advisory_id": "GHSA-fx2h-pf6j-xcff",
+      "url": "https://github.com/advisories/GHSA-fx2h-pf6j-xcff"
+    },
+    "1124252": {
+      "findings": [
+        {
+          "version": "8.4.38",
+          "paths": [
+            ".>postcss",
+            ".>@vitejs/plugin-react>vite>postcss",
+            ".>vite>postcss"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1124252,
+      "title": "PostCSS: Arbitrary file read and information disclosure via attacker-controlled sourceMappingURL in CSS comments",
+      "module_name": "postcss",
+      "vulnerable_versions": "<=8.5.11",
+      "patched_versions": ">=8.5.12",
+      "severity": "high",
+      "cwe": "CWE-22, CWE-200",
+      "github_advisory_id": "GHSA-6g55-p6wh-862q",
+      "url": "https://github.com/advisories/GHSA-6g55-p6wh-862q"
+    },
+    "1130709": {
+      "findings": [
+        {
+          "version": "8.4.38",
+          "paths": [
+            ".>postcss",
+            ".>@vitejs/plugin-react>vite>postcss",
+            ".>vite>postcss"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1130709,
+      "title": "PostCSS: incomplete fix of GHSA-6g55-p6wh-862q — attacker-controlled sourceMappingURL reads arbitrary .map files when `from` is unset",
+      "module_name": "postcss",
+      "vulnerable_versions": "<=8.5.22",
+      "patched_versions": ">=8.5.23",
+      "severity": "moderate",
+      "cwe": "CWE-22, CWE-200",
+      "github_advisory_id": "GHSA-fxqj-rqcc-2cmp",
+      "url": "https://github.com/advisories/GHSA-fxqj-rqcc-2cmp"
+    },
+    "1138811": {
+      "findings": [
+        {
+          "version": "3.3.7",
+          "paths": [
+            ".>postcss>nanoid",
+            ".>nanoid",
+            ".>@vitejs/plugin-react>vite>postcss>nanoid",
+            ".>vite>postcss>nanoid"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1138811,
+      "title": "nanoid: non-secure generators can loop indefinitely with negative size",
+      "module_name": "nanoid",
+      "vulnerable_versions": "<3.3.16",
+      "patched_versions": ">=3.3.16",
+      "severity": "high",
+      "cwe": "CWE-835",
+      "github_advisory_id": "GHSA-28wg-ghj8-5hjv",
+      "url": "https://github.com/advisories/GHSA-28wg-ghj8-5hjv"
+    },
+    "1139427": {
+      "findings": [
+        {
+          "version": "3.3.7",
+          "paths": [
+            ".>postcss>nanoid",
+            ".>nanoid",
+            ".>@vitejs/plugin-react>vite>postcss>nanoid",
+            ".>vite>postcss>nanoid"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1139427,
+      "title": "nanoid: custom generators can loop indefinitely when size is zero",
+      "module_name": "nanoid",
+      "vulnerable_versions": "<3.3.18",
+      "patched_versions": ">=3.3.18",
+      "severity": "high",
+      "cwe": "CWE-835",
+      "github_advisory_id": "GHSA-2v37-7h3g-55p8",
+      "url": "https://github.com/advisories/GHSA-2v37-7h3g-55p8"
+    },
+    "1139510": {
+      "findings": [
+        {
+          "version": "8.4.38",
+          "paths": [
+            ".>postcss",
+            ".>@vitejs/plugin-react>vite>postcss",
+            ".>vite>postcss"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1139510,
+      "title": "PostCSS: Path Traversal in Previous Source Map Auto-Loading (sourceMappingURL) leads to Arbitrary .map File Disclosure",
+      "module_name": "postcss",
+      "vulnerable_versions": "<=8.5.17",
+      "patched_versions": ">=8.5.18",
+      "severity": "high",
+      "cwe": "CWE-22",
+      "github_advisory_id": "GHSA-r28c-9q8g-f849",
+      "url": "https://github.com/advisories/GHSA-r28c-9q8g-f849"
+    },
+    "1153189": {
+      "findings": [
+        {
+          "version": "3.3.7",
+          "paths": [
+            ".>postcss>nanoid",
+            ".>nanoid",
+            ".>@vitejs/plugin-react>vite>postcss>nanoid",
+            ".>vite>postcss>nanoid"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1153189,
+      "title": "nanoid: Integer Overflow or Wraparound",
+      "module_name": "nanoid",
+      "vulnerable_versions": "<3.3.12",
+      "patched_versions": ">=3.3.12",
+      "severity": "high",
+      "cwe": "CWE-190",
+      "github_advisory_id": "GHSA-xwg4-73v4-xw9w",
+      "url": "https://github.com/advisories/GHSA-xwg4-73v4-xw9w"
+    }
+  },
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 2,
+      "moderate": 17,
+      "high": 13,
+      "critical": 1
+    },
+    "dependencies": 28,
+    "devDependencies": 114,
+    "optionalDependencies": 40,
+    "totalDependencies": 142
+  }
+}
