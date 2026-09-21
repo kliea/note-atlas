@@ -13,13 +13,26 @@ from app.db import (
     search_chunk_rows,
 )
 from app.embed import embed_texts, serialize_embedding
-from app.models import NoteDetail, SearchHit
+from app.models import NoteDetail, Point, SearchHit
 
 EmbedFn = Callable[[Sequence[str]], list[list[float]]]
 
 
 def topic_chunk_text(title: str, points: Sequence[str]) -> str:
     return title.strip() + "\n" + "\n".join(item.strip() for item in points if item.strip())
+
+
+def point_index_lines(points: Sequence[Point]) -> list[str]:
+    """Include suggested/accepted context so Ask can retrieve the extra explanation."""
+    lines: list[str] = []
+    for point in points:
+        text = point.text.strip()
+        if text:
+            lines.append(text)
+        context = (point.context or "").strip()
+        if context and point.context_status in {"suggested", "accepted"}:
+            lines.append(context)
+    return lines
 
 
 def note_summary_text(note: NoteDetail) -> str:
@@ -93,6 +106,6 @@ def search(
 def _chunk_payloads(note: NoteDetail) -> tuple[list[str], list[tuple[int | None, str]]]:
     meta: list[tuple[int | None, str]] = [(None, note_summary_text(note))]
     for topic in note.topics:
-        text = topic_chunk_text(topic.title, [point.text for point in topic.points])
+        text = topic_chunk_text(topic.title, point_index_lines(topic.points))
         meta.append((topic.id, text))
     return [item[1] for item in meta], meta

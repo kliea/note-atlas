@@ -9,6 +9,7 @@ const SHORTCUTS: { keys: string; action: string }[] = [
   { keys: "Shift-drag", action: "Lasso notes" },
   { keys: "⌘/Ctrl-click", action: "Add a note to the selection" },
   { keys: "L", action: "Link two selected notes" },
+  { keys: "R", action: "Re-fetch related links for the selection, or every note" },
   { keys: "/", action: "Ask, scoped to the selection if any" },
   { keys: "?", action: "Show this shortcuts list" },
   { keys: "Backspace", action: "Delete the selected note" },

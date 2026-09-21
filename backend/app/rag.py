@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 
@@ -11,8 +12,17 @@ from app.llm import chat_stream
 from app.models import Citation, SearchHit
 
 # Live unrelated hits sat around 0.02–0.22; on-topic topics were ~0.75+.
+# Title questions like "what is midv:2020" often land ~0.20 on MiniLM, so
+# plan_ask also boosts chunks that lexically contain the query.
 SCORE_THRESHOLD = 0.35
 DECLINE_TEXT = "I don't have that in the notes."
+
+_QUESTION_PREFIX = re.compile(
+    r"^(please )?(what(?:s| is| are| was| were)? |"
+    r"who(?: is| are)? |where(?: is| are)? |when(?: is| was)? |"
+    r"why(?: is| are| do| does)? |how(?: do| does| is| are)? |"
+    r"explain |define |describe |tell me about |summarize )"
+)
 
 _SYSTEM = """You answer questions using ONLY the notes context in the user message.
 If the context does not contain the answer, reply exactly:
@@ -20,6 +30,41 @@ I don't have that in the notes.
 Do not use outside knowledge. Do not invent facts. Be concise.
 Output only the answer — no preamble or analysis.
 """
+
+
+def _normalized(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
+def lexical_score(question: str, text: str) -> float:
+    """Phrase/token overlap after stripping question syntax and punctuation."""
+    query = _normalized(question)
+    haystack = _normalized(text)
+    if not query or not haystack:
+        return 0.0
+    core = _QUESTION_PREFIX.sub("", query).strip() or query
+    if len(core) >= 4 and core in haystack:
+        return 1.0
+    terms = [token for token in core.split() if len(token) >= 3]
+    if not terms:
+        return 0.0
+    tokens = haystack.split()
+    need = set(terms)
+    span = max(len(terms) + 1, 4)
+    for index in range(len(tokens)):
+        if need <= set(tokens[index : index + span]):
+            return 1.0
+    return 0.0
+
+
+def _boost_hits(question: str, hits: Sequence[SearchHit]) -> list[SearchHit]:
+    boosted: list[SearchHit] = []
+    for hit in hits:
+        lex = lexical_score(question, hit.text)
+        # Token overlap of 0.5 (one of two words) is not enough to override MiniLM.
+        score = max(hit.score, lex) if lex >= 0.8 else hit.score
+        boosted.append(hit.model_copy(update={"score": score}) if score != hit.score else hit)
+    return boosted
 
 
 @dataclass(frozen=True)
@@ -42,10 +87,11 @@ def plan_ask(
     elif note_ids:
         hits = search(question.strip(), k=k, note_ids=list(note_ids))
     else:
-        hits = search(question.strip(), k=k)
+        hits = search(question.strip(), k=max(k, 10))
     if note_ids:
         allowed = set(note_ids)
         hits = [hit for hit in hits if hit.note_id in allowed]
+    hits = _boost_hits(question.strip(), hits)
     strong = [hit for hit in hits if hit.score >= SCORE_THRESHOLD]
     citations = _citations(strong)
     return AskPlan(

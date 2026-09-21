@@ -78,6 +78,12 @@ def ping() -> LlmPingResult:
     )
 
 
+def _http_error(model: str, code: int) -> str:
+    if code == 404:
+        return f"Ollama model {model} not found (HTTP 404)"
+    return f"HTTP {code}"
+
+
 def _model_in_tags(model: str, names: list[str]) -> bool:
     """Ollama may list `name` or `name:latest`; accept either form."""
     variants = {model, f"{model}:latest"}
@@ -116,7 +122,7 @@ def chat(
         with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        raise LlmError(f"HTTP {exc.code}") from exc
+        raise LlmError(_http_error(model, exc.code)) from exc
     except urllib.error.URLError as exc:
         reason = getattr(exc, "reason", exc)
         raise LlmError(str(reason)) from exc
@@ -181,7 +187,7 @@ def chat_stream(
                     if rest:
                         yield rest
     except urllib.error.HTTPError as exc:
-        raise LlmError(f"HTTP {exc.code}") from exc
+        raise LlmError(_http_error(model, exc.code)) from exc
     except urllib.error.URLError as exc:
         reason = getattr(exc, "reason", exc)
         raise LlmError(str(reason)) from exc

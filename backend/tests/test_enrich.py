@@ -211,6 +211,7 @@ def test_enrich_persists_additions_without_changing_text(
 def test_patch_point_accept_edit_dismiss(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr("app.routers.points.index_note", lambda _note_id: 0)
     client = _client(tmp_path, monkeypatch)
     created = client.post(
         "/notes",

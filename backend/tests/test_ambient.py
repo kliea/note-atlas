@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.db import init_db, replace_note_extraction
 from app.embed import EMBEDDING_DIM
-from app.index import index_note
+from app.index import index_note, search
 from app.main import app
 from app.models import ExtractedTopic
 
@@ -53,7 +53,9 @@ def _fake_embed(texts: Sequence[str]) -> list[list[float]]:
     encoded: list[list[float]] = []
     for text in texts:
         lower = text.lower()
-        if "b+" in lower or "b-tree" in lower or "leaf" in lower:
+        if "loop where usage" in lower:
+            encoded.append(_axis(3))
+        elif "b+" in lower or "b-tree" in lower or "leaf" in lower:
             encoded.append(_axis(0))
         elif "pasta" in lower or "recipe" in lower:
             encoded.append(_axis(1))
@@ -219,6 +221,10 @@ def test_create_enriches_terse_points_only(
     assert by_text["case study: Matsuo Lab"]["context_status"] == "suggested"
     assert by_text["Take notes during the lecture."]["context"] is None
     assert by_text["Take notes during the lecture."]["context_status"] == "none"
+
+    hits = search("loop where usage improves the model", k=5, embed=_fake_embed)
+    assert hits
+    assert "loop where usage" in hits[0].text.lower()
 
 
 @pytest.mark.ambient
