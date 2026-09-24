@@ -2,11 +2,11 @@
 
 Decision (docs/specs/research-track.md, "Leads"; issue #9):
 - Siblings: works citing any of this Paper's Parents — Library Papers from their own reference
-  lists, others from OpenAlex `cites:`. Rank: in the Library first → how many of this Paper's
+  lists, others from the active source (OpenAlex `cites:` or S2 citations). Rank: in the Library first → how many of this Paper's
   Parents they cite → MiniLM similarity to this Paper → recency. This Paper's own References
   are never Siblings.
 - Ancestors: what this Paper's Parents cite, ranked by how many Parents cite it (convergence),
-  tie-break OpenAlex `fwci`. Two hops, the second grown from the top hop-1 Ancestors. An uploaded
+  tie-break OpenAlex `fwci` (or citation count on S2). Two hops, the second grown from the top hop-1 Ancestors. An uploaded
   Parent contributes its own Parent Papers instead of its whole reference list.
 - API off: Siblings only from the Library; Ancestors only through uploaded Parents.
 - Dismissed Leads are skipped here and hidden on read, so they never come back.
@@ -18,7 +18,9 @@ import math
 import sqlite3
 from dataclasses import dataclass, field
 
-from app import openalex, research_store, scholarly
+from app import research_store, scholarly, sources
+from app.sources import Source
+from app.works import Work
 from app.embed import embed_texts
 
 SIBLINGS_KEPT = 15  # 5 shown + "show more"
@@ -32,7 +34,7 @@ _POOL = 30  # most-convergent candidates looked up per hop
 class _Candidate:
     key: str  # OpenAlex id, or "s<id>" for a Study OpenAlex doesn't know
     study_id: int | None = None
-    work: openalex.Work | None = None
+    work: Work | None = None
     title: str = ""
     abstract: str | None = None
     year: int | None = None
@@ -40,25 +42,29 @@ class _Candidate:
     via: set[int] = field(default_factory=set)
     similarity: float | None = None
     fwci: float | None = None
+    cited_by: int | None = None
 
 
-def _key(row: sqlite3.Row) -> str:
-    return str(row["openalex_id"]) if row["openalex_id"] else f"s{row['id']}"
+def _key(row: sqlite3.Row, source: Source) -> str:
+    """The source's id for a Study, or "s<id>" for a Study that source doesn't know."""
+    return str(row[source.id_column]) if row[source.id_column] else f"s{row['id']}"
 
 
-def _known(work: openalex.Work) -> tuple[int, str] | None:
+def _known(work: Work, source: Source) -> tuple[int, str] | None:
     """The Study Atlas already has for this work, if any."""
-    return research_store.find_same_study(0, doi=work.doi, arxiv_id=None, openalex_id=work.openalex_id)
+    return research_store.find_same_study(
+        0, doi=work.doi, arxiv_id=work.arxiv_id, **{"openalex_id": None, **sources.id_kwargs(source, work.id)}
+    )
 
 
-def _materialize(candidate: _Candidate) -> int | None:
+def _materialize(candidate: _Candidate, source: Source) -> int | None:
     """The candidate's Study id, creating an API-found Lead when Atlas doesn't have it yet."""
     if candidate.study_id is not None:
         return candidate.study_id
     work = candidate.work
     if work is None or not work.title:
         return None
-    known = _known(work)
+    known = _known(work, source)
     if known is not None:
         return known[0]
     return research_store.create_lead(
@@ -67,9 +73,10 @@ def _materialize(candidate: _Candidate) -> int | None:
         year=work.year,
         venue=work.venue,
         doi=work.doi,
-        openalex_id=work.openalex_id,
         oa_url=work.oa_url,
         abstract=work.abstract,
+        arxiv_id=work.arxiv_id,
+        **{"openalex_id": None, **sources.id_kwargs(source, work.id)},
     )
 
 
@@ -97,7 +104,7 @@ def _score_similarity(paper: sqlite3.Row, candidates: list[_Candidate]) -> None:
 
 
 def siblings(
-    paper: sqlite3.Row, parents: dict[int, sqlite3.Row], excluded: set[int], api: bool
+    paper: sqlite3.Row, parents: dict[int, sqlite3.Row], excluded: set[int], api: bool, source: Source
 ) -> list[_Candidate]:
     found: dict[str, _Candidate] = {}
     library = research_store.papers_citing(list(parents))
@@ -111,14 +118,14 @@ def siblings(
             year=row["year"], in_library=True, via=set(cited),
         )
 
-    by_openalex = {row["openalex_id"]: sid for sid, row in parents.items() if row["openalex_id"]}
-    if api and by_openalex:
-        for work in openalex.citing_works(list(by_openalex)):
-            via = {by_openalex[ref] for ref in work.referenced_works if ref in by_openalex}
-            known = _known(work)
+    by_source_id = {row[source.id_column]: sid for sid, row in parents.items() if row[source.id_column]}
+    if api and by_source_id:
+        for work in source.citing_works(list(by_source_id)):
+            via = {by_source_id[ref] for ref in work.referenced_works if ref in by_source_id}
+            known = _known(work, source)
             if not via or (known is not None and known[0] in excluded):
                 continue
-            key = f"s{known[0]}" if known else work.openalex_id
+            key = f"s{known[0]}" if known else work.id
             if key in found:
                 found[key].via |= via
                 continue
@@ -140,35 +147,31 @@ def siblings(
 # --- Ancestors -----------------------------------------------------------------------
 
 
-def _cited_keys(row: sqlite3.Row, api: bool) -> set[str]:
+def _cited_keys(row: sqlite3.Row, api: bool, source: Source) -> set[str]:
     """What this Study contributes to Ancestors: an uploaded Paper's own Parents, else
     (API on) its OpenAlex reference list."""
     study_id = int(row["id"])
     if row["state"] == "paper" and research_store.has_parent_judgements(study_id):
-        return {_key(r) for r in research_store.studies_by_id(research_store.parent_ids(study_id)).values()}
-    if api and row["openalex_id"]:
-        work = openalex.works_by_filter("openalex_id", [row["openalex_id"]], "openalex").get(row["openalex_id"])
+        return {_key(r, source) for r in research_store.studies_by_id(research_store.parent_ids(study_id)).values()}
+    if api and row[source.id_column]:
+        work = source.works_by_ids([row[source.id_column]]).get(row[source.id_column])
         return set(work.referenced_works) if work else set()
     return set()
 
 
 def _ancestor_hop(
-    level: dict[int, sqlite3.Row], excluded_keys: set[str], excluded: set[int], api: bool
+    level: dict[int, sqlite3.Row], excluded_keys: set[str], excluded: set[int], api: bool, source: Source
 ) -> list[_Candidate]:
     counts: dict[str, set[int]] = {}
     for study_id, row in level.items():
-        for key in _cited_keys(row, api):
+        for key in _cited_keys(row, api, source):
             if key not in excluded_keys:
                 counts.setdefault(key, set()).add(study_id)
     pool = sorted(counts, key=lambda k: (-len(counts[k]), k))[:_POOL]
 
     local = {int(k[1:]): k for k in pool if k.startswith("s")}
     rows = research_store.studies_by_id(set(local))
-    works = (
-        openalex.works_by_filter("openalex_id", [k for k in pool if not k.startswith("s")], "openalex")
-        if api
-        else {}
-    )
+    works = source.works_by_ids([k for k in pool if not k.startswith("s")]) if api else {}
     candidates: list[_Candidate] = []
     for key in pool:
         if key.startswith("s"):
@@ -180,30 +183,31 @@ def _ancestor_hop(
             )
             continue
         work = works.get(key)
-        known = _known(work) if work else None
+        known = _known(work, source) if work else None
         if work is None or (known is not None and known[0] in excluded):
             continue
         candidates.append(
             _Candidate(
                 key=key, study_id=known[0] if known else None, work=work, title=work.title,
-                year=work.year, fwci=work.fwci, via=counts[key],
+                year=work.year, fwci=work.fwci, cited_by=work.cited_by_count, via=counts[key],
             )
         )
-    candidates.sort(key=lambda c: (-len(c.via), -(c.fwci or 0.0), c.key))
+    # Convergence, then impact: OpenAlex's fwci where there is one, else raw citations (S2).
+    candidates.sort(key=lambda c: (-len(c.via), -(c.fwci or 0.0), -(c.cited_by or 0), c.key))
     return candidates[:ANCESTORS_KEPT]
 
 
 def ancestors(
-    paper: sqlite3.Row, parents: dict[int, sqlite3.Row], excluded: set[int], api: bool
+    paper: sqlite3.Row, parents: dict[int, sqlite3.Row], excluded: set[int], api: bool, source: Source
 ) -> list[tuple[int, _Candidate]]:
-    excluded_keys = {_key(paper), *(_key(row) for row in parents.values())}
-    excluded_keys |= {_key(row) for row in research_store.studies_by_id(excluded).values()}
+    excluded_keys = {_key(paper, source), *(_key(row, source) for row in parents.values())}
+    excluded_keys |= {_key(row, source) for row in research_store.studies_by_id(excluded).values()}
     out: list[tuple[int, _Candidate]] = []
     level = parents
     for hop in range(1, HOPS + 1):
-        found = _ancestor_hop(level, excluded_keys, excluded, api)
+        found = _ancestor_hop(level, excluded_keys, excluded, api, source)
         for candidate in found:
-            candidate.study_id = _materialize(candidate)
+            candidate.study_id = _materialize(candidate, source)
         found = [c for c in found if c.study_id is not None and c.study_id not in excluded]
         out.extend((hop, c) for c in found)
         excluded_keys |= {c.key for c in found}
@@ -219,8 +223,9 @@ def ancestors(
 
 def compute_leads(paper_id: int) -> None:
     """Recompute and store this Paper's Siblings and Ancestors.
-    Raises openalex.BudgetExhausted / ApiError."""
+    Raises works.BudgetExhausted / ApiError."""
     api = scholarly.api_enabled()
+    source = sources.active()
     paper = research_store.studies_by_id([paper_id]).get(paper_id)
     if paper is None or paper["state"] != "paper":
         return
@@ -229,8 +234,8 @@ def compute_leads(paper_id: int) -> None:
     excluded = {paper_id, *parent_ids, *research_store.dismissed_ids(paper_id)}
 
     sibling_rows: list[dict[str, object]] = []
-    for candidate in siblings(paper, parents, excluded | research_store.reference_ids(paper_id), api):
-        study_id = _materialize(candidate)
+    for candidate in siblings(paper, parents, excluded | research_store.reference_ids(paper_id), api, source):
+        study_id = _materialize(candidate, source)
         if study_id is None or study_id in excluded:
             continue
         sibling_rows.append(
@@ -253,6 +258,6 @@ def compute_leads(paper_id: int) -> None:
             "fwci": candidate.fwci,
             "via": sorted(candidate.via),
         }
-        for hop, candidate in ancestors(paper, parents, set(excluded), api)
+        for hop, candidate in ancestors(paper, parents, set(excluded), api, source)
     ]
     research_store.replace_paper_leads(paper_id, sibling_rows + ancestor_rows)

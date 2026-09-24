@@ -30,6 +30,7 @@ from app import (
     scholarly,
 )
 from app.config import ollama_model
+from app.works import BudgetExhausted
 from app.tei import body_text, full_text, parse_tei
 
 log = logging.getLogger(__name__)
@@ -195,7 +196,7 @@ def process_next_resolution() -> bool:
     research_store.set_resolve_status(paper_id, "running")
     try:
         scholarly.resolve_paper(paper_id)
-    except openalex.BudgetExhausted as exc:
+    except BudgetExhausted as exc:
         research_store.set_resolve_status(
             paper_id, "waiting_budget", after=exc.reset_at.isoformat()
         )
@@ -216,7 +217,7 @@ def _process_next_leads() -> bool:
     research_store.set_leads_status(paper_id, "running")
     try:
         paper_leads.compute_leads(paper_id)
-    except openalex.BudgetExhausted as exc:
+    except BudgetExhausted as exc:
         research_store.set_leads_status(paper_id, "waiting_budget", after=exc.reset_at.isoformat())
         return True
     except Exception as exc:  # noqa: BLE001 — recorded for a manual refresh

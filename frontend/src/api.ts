@@ -2,6 +2,7 @@ import type {
   ApiStatus,
   AskMeta,
   ResearchAskMeta,
+  ScholarlySource,
   Citation,
   Connection,
   ConnectionCreate,
@@ -354,6 +355,14 @@ export async function deleteClaim(id: number): Promise<void> {
 
 export function fetchApiStatus(): Promise<ApiStatus> {
   return requestJson<ApiStatus>("/research/api-status");
+}
+
+export function setApiSource(source: ScholarlySource): Promise<ApiStatus> {
+  return requestJson<ApiStatus>("/research/api-status", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source }),
+  });
 }
 
 export function setApiEnabled(enabled: boolean): Promise<ApiStatus> {

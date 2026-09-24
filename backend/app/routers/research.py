@@ -11,7 +11,7 @@ from collections.abc import Iterator
 
 from fastapi.responses import StreamingResponse
 
-from app import openalex, research_ask, research_store, scholarly
+from app import openalex, research_ask, research_store, scholarly, sources
 from app.ambient import ingest_note
 from app.db import create_note, delete_note
 from app.llm import LlmError
@@ -142,6 +142,8 @@ def api_status() -> ApiStatus:
     budget = openalex.budget()
     return ApiStatus(
         enabled=scholarly.api_enabled(),
+        source=sources.active().name,
+        sources=sources.available(),
         openalex_key=bool(openalex_api_key()),
         s2_key=bool(s2_api_key()),
         remaining_usd=_as_float(budget["remaining_usd"]),
@@ -153,6 +155,17 @@ def api_status() -> ApiStatus:
 
 @router.put("/api-status", response_model=ApiStatus)
 def set_api_status(payload: ApiToggle) -> ApiStatus:
+    if payload.source is not None and payload.source != sources.active().name:
+        try:
+            sources.choose(payload.source)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        # Re-resolve every Paper and its Leads against the new source (responses are cached).
+        research_store.requeue_resolution(("done", "failed", "waiting_budget"))
+        research_store.requeue_leads(("done", "failed", "waiting_budget"))
+        resolver.notify()
+    if payload.enabled is None:
+        return api_status()
     research_store.set_settings({"scholarly_api": "on" if payload.enabled else "off"})
     if payload.enabled:
         research_store.requeue_resolution(("off",))

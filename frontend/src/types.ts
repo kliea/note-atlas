@@ -148,8 +148,12 @@ export type StudyState = "lead" | "paper";
 
 export type ResolveStatus = "pending" | "running" | "done" | "waiting_budget" | "off" | "failed";
 
+export type ScholarlySource = "openalex" | "s2";
+
 export type ApiStatus = {
   enabled: boolean;
+  source: ScholarlySource;
+  sources: ScholarlySource[];
   openalex_key: boolean;
   s2_key: boolean;
   remaining_usd: number | null;

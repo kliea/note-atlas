@@ -342,8 +342,14 @@ class IdentityDecision(BaseModel):
     same: bool
 
 
+ScholarlySource = Literal["openalex", "s2"]
+
+
 class ApiStatus(BaseModel):
     enabled: bool
+    # The source Papers resolve against, and the ones selectable (S2 needs the user's key).
+    source: ScholarlySource = "openalex"
+    sources: list[ScholarlySource] = Field(default_factory=lambda: ["openalex"])
     openalex_key: bool
     s2_key: bool
     remaining_usd: float | None = None
@@ -353,7 +359,8 @@ class ApiStatus(BaseModel):
 
 
 class ApiToggle(BaseModel):
-    enabled: bool
+    enabled: bool | None = None
+    source: ScholarlySource | None = None
 
 
 ClaimKind = Literal["contribution", "limitation"]

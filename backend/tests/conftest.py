@@ -65,3 +65,9 @@ def _fake_reextract_embedding(monkeypatch: pytest.MonkeyPatch) -> None:
         return vectors
 
     monkeypatch.setattr("app.reextract.embed_texts", embed)
+
+
+@pytest.fixture(autouse=True)
+def _no_s2_throttle(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Semantic Scholar's 1 request/second pacing is real-world only; tests don't wait."""
+    monkeypatch.setattr("app.s2.MIN_INTERVAL_SECONDS", 0.0)

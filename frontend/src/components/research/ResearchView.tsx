@@ -18,6 +18,7 @@ import {
   retryStudy,
   sendClaimToBoard,
   setApiEnabled,
+  setApiSource,
   uploadPapers,
   type StudyFilter,
 } from "../../api";
@@ -29,6 +30,7 @@ import type {
   ParentMark,
   ResearchCitation,
   ResearchJob,
+  ScholarlySource,
   StudyDetail,
   StudySummary,
 } from "../../types";
@@ -323,6 +325,23 @@ export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProp
     [loadStudies],
   );
 
+  const changeSource = useCallback(
+    async (source: ScholarlySource) => {
+      const ok = window.confirm(
+        "Switch the scholarly source? Every Paper and its Leads will be looked up again with the new source.",
+      );
+      if (!ok) return;
+      try {
+        setApiStatus(await setApiSource(source));
+        await loadStudies();
+        await loadDetail();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [loadStudies, loadDetail],
+  );
+
   const toggleApi = useCallback(async () => {
     if (apiStatus === null) return;
     try {
@@ -507,7 +526,7 @@ export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProp
           </button>
         </div>
         <div className="research-row research-api-row">
-          <ApiPill status={apiStatus} onToggle={() => void toggleApi()} />
+          <ApiPill status={apiStatus} onToggle={() => void toggleApi()} onSource={(source) => void changeSource(source)} />
           <button
             type="button"
             className="research-link-btn"
@@ -922,11 +941,11 @@ function ResolveNotice({
   switch (detail.resolve_status) {
     case "pending":
     case "running":
-      return <p className="research-muted">Looking up year, DOI, and references on OpenAlex…</p>;
+      return <p className="research-muted">Looking up year, DOI, and references…</p>;
     case "waiting_budget":
       return (
         <div className="research-callout">
-          Waiting for today's OpenAlex budget (resets {hoursUntil(detail.resolve_after)}). Year, DOI, and links fill in
+          Waiting for the scholarly source's limit to reset ({hoursUntil(detail.resolve_after)}). Year, DOI, and links fill in
           then; everything else is ready now.
         </div>
       );
@@ -980,7 +999,7 @@ function LeadsNotice({
     case "waiting_budget":
       return (
         <div className="research-callout">
-          Waiting for today's OpenAlex budget (resets {hoursUntil(detail.leads_after)}) to find Siblings and Ancestors.
+          Waiting for the scholarly source's limit to reset ({hoursUntil(detail.leads_after)}) to find Siblings and Ancestors.
         </div>
       );
     case "failed":

@@ -822,6 +822,8 @@ def apply_work(
     doi: str | None,
     openalex_id: str | None,
     oa_url: str | None,
+    s2_id: str | None = None,
+    arxiv_id: str | None = None,
 ) -> None:
     """Fill a Study from its canonical record; empty values never erase what the PDF gave."""
     conn = get_connection()
@@ -835,7 +837,9 @@ def apply_work(
                 venue = COALESCE(?, venue),
                 doi = COALESCE(?, doi),
                 openalex_id = COALESCE(?, openalex_id),
-                oa_url = COALESCE(?, oa_url)
+                oa_url = COALESCE(?, oa_url),
+                s2_id = COALESCE(?, s2_id),
+                arxiv_id = COALESCE(?, arxiv_id)
             WHERE id = ?
             """,
             (
@@ -847,6 +851,8 @@ def apply_work(
                 doi,
                 openalex_id,
                 oa_url,
+                s2_id,
+                arxiv_id,
                 study_id,
             ),
         )
@@ -856,12 +862,17 @@ def apply_work(
 
 
 def find_same_study(
-    study_id: int, *, doi: str | None, arxiv_id: str | None, openalex_id: str | None
+    study_id: int,
+    *,
+    doi: str | None,
+    arxiv_id: str | None,
+    openalex_id: str | None,
+    s2_id: str | None = None,
 ) -> tuple[int, str] | None:
     """Another Study sharing a strong identifier: (id, state)."""
     clauses: list[str] = []
     params: list[object] = []
-    for column, value in (("doi", doi), ("arxiv_id", arxiv_id), ("openalex_id", openalex_id)):
+    for column, value in (("doi", doi), ("arxiv_id", arxiv_id), ("openalex_id", openalex_id), ("s2_id", s2_id)):
         if value:
             clauses.append(f"lower({column}) = lower(?)")
             params.append(value)
@@ -1007,7 +1018,7 @@ def reference_rows(paper_id: int) -> list[sqlite3.Row]:
     try:
         return conn.execute(
             """
-            SELECT s.id, s.title, s.year, s.doi, s.arxiv_id, s.openalex_id, s.authors_json, s.state
+            SELECT s.id, s.title, s.year, s.doi, s.arxiv_id, s.openalex_id, s.s2_id, s.authors_json, s.state
             FROM cites c JOIN studies s ON s.id = c.to_study_id
             WHERE c.from_study_id = ?
             ORDER BY c.order_idx
@@ -1202,6 +1213,7 @@ def _aliases(conn: sqlite3.Connection, study_ids: list[int]) -> dict[int, int]:
         FROM studies a JOIN studies b
           ON b.id = a.id OR lower(b.doi) = lower(a.doi)
              OR lower(b.arxiv_id) = lower(a.arxiv_id) OR b.openalex_id = a.openalex_id
+             OR b.s2_id = a.s2_id
         WHERE a.id IN ({marks})
         """,
         list(study_ids),
@@ -1243,6 +1255,8 @@ def create_lead(
     openalex_id: str | None,
     oa_url: str | None,
     abstract: str | None,
+    s2_id: str | None = None,
+    arxiv_id: str | None = None,
 ) -> int:
     """A Lead found through the scholarly API rather than a reference list."""
     conn = get_connection()
@@ -1251,11 +1265,11 @@ def create_lead(
             """
             INSERT INTO studies (
                 state, title, authors_json, year, venue, doi, openalex_id, oa_url, abstract,
-                created_at
+                s2_id, arxiv_id, created_at
             )
-            VALUES ('lead', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES ('lead', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (title, json.dumps(authors), year, venue, doi, openalex_id, oa_url, abstract, _now()),
+            (title, json.dumps(authors), year, venue, doi, openalex_id, oa_url, abstract, s2_id, arxiv_id, _now()),
         )
         conn.commit()
         return int(cursor.lastrowid)
