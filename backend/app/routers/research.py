@@ -111,6 +111,15 @@ def edit_claim(claim_id: int, payload: ClaimPatch) -> Claim:
     return claim
 
 
+@router.post("/claims/{claim_id}/keep", response_model=Claim)
+def keep_claim(claim_id: int) -> Claim:
+    """Keep a Claim that re-extraction flagged as "not in the latest extraction"."""
+    claim = research_store.keep_claim(claim_id)
+    if claim is None:
+        raise HTTPException(status_code=404, detail="claim not found")
+    return claim
+
+
 @router.delete("/claims/{claim_id}", status_code=204)
 def delete_claim(claim_id: int) -> Response:
     study_id = research_store.claim_study_id(claim_id)

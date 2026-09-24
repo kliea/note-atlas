@@ -144,3 +144,19 @@ def test_plan_merge_matches_one_to_one_and_suppresses_tombstones() -> None:
     assert plan.stale == [2]
     assert plan.suppressed == [L_NEW.text]
     assert plan.inserts == [(C, None)]
+
+
+def test_keeping_a_stale_claim_clears_the_flag(client: TestClient) -> None:
+    paper = _paper(client)
+    b = _claims(client, paper)[B]
+    client.patch(f"/research/claims/{b['id']}", json={"text": "Longer context doesn't help, per me."})
+    client.run["now"] = RUN_2  # type: ignore[attr-defined]
+    client.post(f"/research/studies/{paper}/reextract")
+    _drain()
+    assert _claims(client, paper)["Longer context doesn't help, per me."]["stale"] is True
+
+    kept = client.post(f"/research/claims/{b['id']}/keep")
+    assert kept.status_code == 200 and kept.json()["stale"] is False
+    assert _claims(client, paper)["Longer context doesn't help, per me."]["stale"] is False
+    client.delete(f"/research/claims/{b['id']}")
+    assert client.post(f"/research/claims/{b['id']}/keep").status_code == 404

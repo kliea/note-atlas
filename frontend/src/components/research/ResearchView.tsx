@@ -7,6 +7,7 @@ import {
   fetchApiStatus,
   fetchStudies,
   fetchStudy,
+  keepClaim,
   dismissLead,
   markParent,
   reextractAll,
@@ -438,6 +439,14 @@ export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProp
     [loadDetail],
   );
 
+  const onKeepClaim = useCallback(
+    async (id: number) => {
+      await keepClaim(id);
+      await loadDetail();
+    },
+    [loadDetail],
+  );
+
   const onDeleteClaim = useCallback(
     async (id: number) => {
       await deleteClaim(id);
@@ -671,6 +680,7 @@ export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProp
                   detail={detail}
                   onEdit={onEditClaim}
                   onDelete={onDeleteClaim}
+                  onKeep={onKeepClaim}
                   onAddLimitation={onAddLimitation}
                   onSend={onSendClaim}
                   onReextract={() => void onReextract()}
@@ -758,6 +768,7 @@ type PaperExtractionProps = {
   detail: StudyDetail;
   onEdit: (id: number, text: string) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
+  onKeep: (id: number) => Promise<void>;
   onAddLimitation: (text: string) => Promise<void>;
   onSend: (id: number) => Promise<void>;
   onReextract: () => void;
@@ -782,6 +793,7 @@ function PaperExtraction({
   detail,
   onEdit,
   onDelete,
+  onKeep,
   onAddLimitation,
   onSend,
   onReextract,
@@ -819,6 +831,7 @@ function PaperExtraction({
             claim={claim}
             onEdit={onEdit}
             onDelete={onDelete}
+            onKeep={onKeep}
             onSend={onSend}
             onOpenNote={onOpenNote}
             highlighted={claim.id === highlightClaimId}

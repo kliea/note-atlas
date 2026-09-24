@@ -5,12 +5,13 @@ type ClaimCardProps = {
   claim: Claim;
   onEdit: (id: number, text: string) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
+  onKeep: (id: number) => Promise<void>;
   onSend: (id: number) => Promise<void>;
   onOpenNote: (noteId: number) => void;
   highlighted: boolean;
 };
 
-export function ClaimCard({ claim, onEdit, onDelete, onSend, onOpenNote, highlighted }: ClaimCardProps) {
+export function ClaimCard({ claim, onEdit, onDelete, onKeep, onSend, onOpenNote, highlighted }: ClaimCardProps) {
   const cardRef = useRef<HTMLLIElement>(null);
   const [sending, setSending] = useState(false);
   const [showQuote, setShowQuote] = useState(false);
@@ -100,6 +101,16 @@ export function ClaimCard({ claim, onEdit, onDelete, onSend, onOpenNote, highlig
             <span className="research-badge research-badge-muted" title="Not found in the latest extraction">
               not in latest extraction
             </span>
+          )}
+          {claim.stale && (
+            <button
+              type="button"
+              className="research-link-btn"
+              onClick={() => void onKeep(claim.id)}
+              title="Keep this Claim and clear the flag (or delete it below)"
+            >
+              keep
+            </button>
           )}
         </div>
       )}
