@@ -12,6 +12,7 @@ Decision (docs/specs/research-track.md, "Ask"; issue #14):
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import sqlite3
@@ -20,7 +21,7 @@ from dataclasses import dataclass, replace
 
 from app.db import get_connection
 from app.embed import embed_texts, serialize_embedding
-from app.llm import chat_stream
+from app.llm import LlmError, chat
 from app.models import ResearchCitation
 from app.rag import SCORE_THRESHOLD, lexical_score
 
@@ -51,13 +52,24 @@ _KIND_WORDS: tuple[tuple[re.Pattern[str], str], ...] = (
 # Overview prompts over a selection read the selected Papers whole, as board Ask does for a lasso.
 _OVERVIEW = re.compile(r"summar(?:y|ize|ise)|overview|tldr|compare|what(?:'s| is| are) in (?:these|this)", re.I)
 
-_SYSTEM = """You answer questions about research papers using ONLY the numbered context in the user message.
-Each context entry is one field or one claim from one paper. Cite the entries you use inline, like [2] or [1][3].
-If the context does not contain the answer, reply exactly:
-I don't have that in these papers.
-Do not use outside knowledge. Do not invent facts. Be concise.
-Output only the answer — no preamble or analysis.
+# Declining is decided before the model is called (weak retrieval → DECLINE_TEXT). Offering
+# the model the decline sentence too made qwen3:4b take it even for well-covered questions
+# (seen on the #8 papers), so the prompt only lets it say how far the context goes.
+_SYSTEM = """You answer questions about research papers using ONLY the numbered context entries in the user message.
+The entries were retrieved as relevant to the question. Each is one field or one claim from one paper.
+Answer from them and cite the entries you use inline, like [2] or [1][3].
+If they only partly answer the question (for example, nothing is truly shared across the papers), say that plainly, then give the closest points with citations.
+Do not use outside knowledge. Do not invent facts. At most 5 sentences.
+Put only the final answer in "answer": no reasoning, no restating the question.
 """
+
+# A schema-constrained reply keeps qwen3's reasoning out of the answer: with free streaming
+# it sometimes ignores think=false and narrates its analysis (seen on the #8 papers).
+_ANSWER_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {"answer": {"type": "string"}},
+    "required": ["answer"],
+}
 
 EmbedFn = Callable[[Sequence[str]], list[list[float]]]
 
@@ -282,12 +294,14 @@ def build_prompt(plan: ResearchAskPlan) -> list[dict[str, str]]:
     ]
 
 
-def stream_answer(
-    plan: ResearchAskPlan,
-    generate: Callable[[list[dict[str, str]]], Iterator[str]] | None = None,
-) -> Iterator[str]:
-    """Yield answer tokens. Weak context never calls the model."""
+def stream_answer(plan: ResearchAskPlan) -> Iterator[str]:
+    """Yield the answer (one piece). Weak context never calls the model."""
     if not plan.grounded:
         yield DECLINE_TEXT
         return
-    yield from (generate or chat_stream)(build_prompt(plan))
+    raw = chat(build_prompt(plan), schema=_ANSWER_SCHEMA, temperature=0)
+    try:
+        answer = str(json.loads(raw)["answer"]).strip()
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise LlmError("model returned an invalid answer") from exc
+    yield answer or DECLINE_TEXT

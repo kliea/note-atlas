@@ -75,6 +75,10 @@ def _ask(client: TestClient, question: str, study_ids: list[int] | None = None) 
     return meta, answer
 
 
+def _ok(_messages: Any, **_kwargs: Any) -> str:
+    return json.dumps({"answer": "ok"})
+
+
 def _indexed(study_id: int) -> list[str]:
     conn = get_connection()
     try:
@@ -101,11 +105,12 @@ def test_shared_limitations_question_cites_real_claims(client: TestClient, monke
     first, second = _paper(client), _paper(client, "Needles in Haystacks")
     prompts: list[str] = []
 
-    def generate(messages: list[dict[str, str]]):
+    def generate(messages: list[dict[str, str]], **kwargs: Any) -> str:
         prompts.append(messages[1]["content"])
-        yield "Both evaluate only 2023 models [1][2]."
+        assert kwargs["temperature"] == 0 and kwargs["schema"]["required"] == ["answer"]
+        return json.dumps({"answer": "Both evaluate only 2023 models [1][2]."})
 
-    monkeypatch.setattr(research_ask, "chat_stream", generate)
+    monkeypatch.setattr(research_ask, "chat", generate)
     meta, answer = _ask(client, "What limitations do these papers share?", [first, second])
 
     assert meta["grounded"] is True
@@ -126,10 +131,10 @@ def test_off_topic_question_is_declined_without_calling_the_model(
 ) -> None:
     paper = _paper(client)
 
-    def never(_messages: Any):
+    def never(_messages: Any, **_kwargs: Any) -> str:
         raise AssertionError("the model must not be called")
 
-    monkeypatch.setattr(research_ask, "chat_stream", never)
+    monkeypatch.setattr(research_ask, "chat", never)
     for scope in (None, [paper]):
         meta, answer = _ask(client, "Which city hosts the Olympic marathon?", scope)
         assert meta == {"grounded": False, "citations": []}
@@ -138,7 +143,7 @@ def test_off_topic_question_is_declined_without_calling_the_model(
 
 def test_scope_is_the_selected_papers(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     first, second = _paper(client), _paper(client, "Needles in Haystacks")
-    monkeypatch.setattr(research_ask, "chat_stream", lambda _m: iter(["ok"]))
+    monkeypatch.setattr(research_ask, "chat", _ok)
     meta, _ = _ask(client, "Summarize these papers", [second])
     assert {c["study_id"] for c in meta["citations"]} == {second}
     whole, _ = _ask(client, "What method do they use to vary the position of the relevant document?")
@@ -170,7 +175,7 @@ def test_papers_extracted_before_the_index_are_indexed_on_first_ask(
         conn.commit()
     finally:
         conn.close()
-    monkeypatch.setattr(research_ask, "chat_stream", lambda _m: iter(["ok"]))
+    monkeypatch.setattr(research_ask, "chat", _ok)
     meta, _ = _ask(client, "What limitations does it have?")
     assert meta["grounded"] is True
     assert len(_indexed(paper)) == 7
@@ -187,7 +192,7 @@ def test_board_ask_and_research_ask_never_cross(client: TestClient, monkeypatch:
     assert {hit.note_id for hit in board.context_hits} == {note["id"]}
 
     # Research Ask sees the Paper, never the note.
-    monkeypatch.setattr(research_ask, "chat_stream", lambda _m: iter(["ok"]))
+    monkeypatch.setattr(research_ask, "chat", _ok)
     meta, _ = _ask(client, "What limitations were evaluated for 2023 models?")
     assert meta["citations"] and {c["study_id"] for c in meta["citations"]} == {paper}
 
@@ -197,3 +202,13 @@ def test_board_ask_and_research_ask_never_cross(client: TestClient, monkeypatch:
     sent_note = next(c["sent_note_id"] for c in sent["claims"] if c["id"] == limitation["id"])
     board = board_plan_ask("What limitations were evaluated for 2023 models?")
     assert sent_note in {hit.note_id for hit in board.context_hits}
+
+
+def test_a_reply_without_an_answer_is_an_error_not_a_ramble(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paper = _paper(client)
+    monkeypatch.setattr(research_ask, "chat", lambda *_a, **_k: "Okay, let me tackle this question...")
+    response = client.post("/research/ask", json={"question": "What limitations does it have?", "study_ids": [paper]})
+    assert "event: error" in response.text
+    assert "let me tackle" not in response.text
