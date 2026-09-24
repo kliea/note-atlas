@@ -19,13 +19,23 @@ import {
   type StudyFilter,
 } from "../../api";
 import type { ColorMode } from "@xyflow/react";
-import type { ApiStatus, Claim, LeadItem, ParentMark, ResearchJob, StudyDetail, StudySummary } from "../../types";
+import type {
+  ApiStatus,
+  Claim,
+  LeadItem,
+  ParentMark,
+  ResearchCitation,
+  ResearchJob,
+  StudyDetail,
+  StudySummary,
+} from "../../types";
 import { loadBoardCentre } from "../../boardCentre";
 import { ApiPill } from "./ApiPill";
 import { ClaimCard } from "./ClaimCard";
 import { LeadsSection } from "./LeadsSection";
 import { LineageGraph } from "./LineageGraph";
 import { ParentsSection } from "./ParentsSection";
+import { ResearchAskPanel } from "./ResearchAskPanel";
 import { UploadDialog } from "./UploadDialog";
 
 const POLL_MS = 1200;
@@ -168,6 +178,32 @@ type ResearchViewProps = {
 export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProps) {
   const [tab, setTab] = useState<ReaderTab>("reading");
   const [highlightClaimId, setHighlightClaimId] = useState<number | null>(target?.claimId ?? null);
+  const [highlightField, setHighlightField] = useState<string | null>(null);
+  const [askOpen, setAskOpen] = useState(false);
+  // Papers ticked in the Library: Ask's scope (none ticked = the whole Library).
+  const [askIds, setAskIds] = useState<Set<number>>(new Set());
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent): void {
+      const el = event.target as HTMLElement | null;
+      const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+      if (event.key === "/" && !typing && !event.metaKey && !event.ctrlKey) {
+        event.preventDefault();
+        setAskOpen(true);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  function toggleAskId(id: number): void {
+    setAskIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
   const [filter, setFilter] = useState<StudyFilter>(target ? "all" : "paper");
   const [query, setQuery] = useState("");
   const [studies, setStudies] = useState<StudySummary[]>([]);
@@ -179,6 +215,13 @@ export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProp
     setTab("reading");
     setHighlightClaimId(target.claimId);
   }, [target]);
+
+  const onCite = useCallback((citation: ResearchCitation) => {
+    setSelectedId(citation.study_id);
+    setTab("reading");
+    setHighlightClaimId(citation.claim_id);
+    setHighlightField(citation.field);
+  }, []);
   const [detail, setDetail] = useState<StudyDetail | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -418,6 +461,14 @@ export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProp
           <button type="button" className="nav-btn" onClick={() => setUploadOpen(true)}>
             + Upload PDF
           </button>
+          <button
+            type="button"
+            className="nav-btn"
+            onClick={() => setAskOpen(true)}
+            title="Ask across the ticked Papers, or the whole Library (shortcut: /)"
+          >
+            Ask /
+          </button>
         </div>
         <div className="research-row research-api-row">
           <ApiPill status={apiStatus} onToggle={() => void toggleApi()} />
@@ -450,6 +501,9 @@ export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProp
           <table className="research-table">
             <thead>
               <tr>
+                <th>
+                  <span className="visually-hidden">Include in Ask</span>
+                </th>
                 <th>Title</th>
                 <th>Year</th>
                 <th>Refs</th>
@@ -473,6 +527,16 @@ export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProp
                   tabIndex={0}
                   aria-selected={study.id === selectedId}
                 >
+                  <td onClick={(event) => event.stopPropagation()}>
+                    {study.state === "paper" && (
+                      <input
+                        type="checkbox"
+                        checked={askIds.has(study.id)}
+                        onChange={() => toggleAskId(study.id)}
+                        aria-label={`Include ${study.title} in Ask`}
+                      />
+                    )}
+                  </td>
                   <td>
                     {study.title} {filter === "all" && <StateBadge state={study.state} />}
                   </td>
@@ -489,6 +553,16 @@ export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProp
       </section>
 
       <section className="research-reader" aria-label="Reader">
+        {askOpen && (
+          <ResearchAskPanel
+            studyIds={[...askIds]}
+            scopeLabel={
+              askIds.size === 0 ? "the whole Library" : `${askIds.size} selected Paper${askIds.size === 1 ? "" : "s"}`
+            }
+            onCite={onCite}
+            onClose={() => setAskOpen(false)}
+          />
+        )}
         {detail === null ? (
           <p className="research-muted">Select a Paper or Lead to read it here.</p>
         ) : (
@@ -566,6 +640,7 @@ export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProp
                   onSend={onSendClaim}
                   onOpenNote={onOpenNote}
                   highlightClaimId={highlightClaimId}
+                  highlightField={highlightField}
                 />
               )}
               {detail.state === "paper" && (
@@ -651,6 +726,7 @@ type PaperExtractionProps = {
   onSend: (id: number) => Promise<void>;
   onOpenNote: (noteId: number) => void;
   highlightClaimId: number | null;
+  highlightField: string | null;
 };
 
 const FIELDS: { key: "research_question" | "method" | "key_results" | "scope"; label: string }[] = [
@@ -668,12 +744,18 @@ function PaperExtraction({
   onSend,
   onOpenNote,
   highlightClaimId,
+  highlightField,
 }: PaperExtractionProps) {
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
   const fieldsState = sectionState(detail.job, "extract");
   const limitationsState = sectionState(detail.job, "limitations");
   const contributions = detail.claims.filter((c) => c.kind === "contribution");
+
+  useEffect(() => {
+    if (highlightField === null) return;
+    document.querySelector(".research-field-highlight")?.scrollIntoView({ block: "center" });
+  }, [highlightField, detail.id]);
   const limitations = detail.claims.filter((c) => c.kind === "limitation");
 
   async function add(): Promise<void> {
@@ -709,7 +791,7 @@ function PaperExtraction({
       {fieldsState === "done" && (
         <dl className="research-fields">
           {FIELDS.map(({ key, label }) => (
-            <div key={key}>
+            <div key={key} className={key === highlightField ? "research-field-highlight" : undefined}>
               <dt>{label}</dt>
               <dd>{detail[key] ?? <span className="research-muted">not found</span>}</dd>
             </div>

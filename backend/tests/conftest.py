@@ -38,3 +38,13 @@ def _fake_lead_similarity(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "app.paper_leads.embed_texts", lambda texts: [[1.0] + [0.0] * (EMBEDDING_DIM - 1) for _ in texts]
     )
+
+
+@pytest.fixture(autouse=True)
+def _fake_research_ask_embedding(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The Research Ask index never loads MiniLM in tests unless a test swaps in its own vectors."""
+    from app.embed import EMBEDDING_DIM
+
+    monkeypatch.setattr(
+        "app.research_ask.embed_texts", lambda texts: [[1.0] + [0.0] * (EMBEDDING_DIM - 1) for _ in texts]
+    )

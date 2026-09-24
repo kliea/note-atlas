@@ -1440,3 +1440,12 @@ def link_board_note(note_id: int, study_id: int, claim_id: int) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def claim_study_id(claim_id: int) -> int | None:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT study_id FROM claims WHERE id = ?", (claim_id,)).fetchone()
+        return int(row[0]) if row else None
+    finally:
+        conn.close()

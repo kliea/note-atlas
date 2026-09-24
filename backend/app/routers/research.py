@@ -6,9 +6,15 @@ from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Response, UploadFile
 
-from app import openalex, research_store, scholarly
+import json
+from collections.abc import Iterator
+
+from fastapi.responses import StreamingResponse
+
+from app import openalex, research_ask, research_store, scholarly
 from app.ambient import ingest_note
 from app.db import create_note, delete_note
+from app.llm import LlmError
 from app.config import openalex_api_key, s2_api_key
 from app.models import (
     ApiStatus,
@@ -20,6 +26,7 @@ from app.models import (
     LeadDismissal,
     NoteCreate,
     ParentMarkUpdate,
+    ResearchAskRequest,
     SendToBoard,
     StudyDetail,
     StudySummary,
@@ -90,6 +97,7 @@ def add_claim(study_id: int, payload: ClaimCreate) -> Claim:
     claim = research_store.add_reader_claim(study_id, payload.kind, payload.text)
     if claim is None:
         raise HTTPException(status_code=404, detail="paper not found")
+    research_ask.reindex_quietly(study_id)
     return claim
 
 
@@ -98,13 +106,16 @@ def edit_claim(claim_id: int, payload: ClaimPatch) -> Claim:
     claim = research_store.edit_claim(claim_id, payload.text)
     if claim is None:
         raise HTTPException(status_code=404, detail="claim not found")
+    research_ask.reindex_quietly(research_store.claim_study_id(claim_id))
     return claim
 
 
 @router.delete("/claims/{claim_id}", status_code=204)
 def delete_claim(claim_id: int) -> Response:
+    study_id = research_store.claim_study_id(claim_id)
     if not research_store.delete_claim(claim_id):
         raise HTTPException(status_code=404, detail="claim not found")
+    research_ask.reindex_quietly(study_id)
     return Response(status_code=204)
 
 
@@ -248,3 +259,34 @@ def send_claim_to_board(claim_id: int, payload: SendToBoard, background: Backgro
     updated = research_store.get_study(int(study["id"]))
     assert updated is not None
     return updated
+
+
+def _sse(event: str, payload: dict[str, object]) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload)}\n\n"
+
+
+@router.post("/ask")
+def ask_papers(body: ResearchAskRequest) -> StreamingResponse:
+    """Answer from the selected Papers' Extractions and Claims (or the whole Library)."""
+    question = body.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="question is required")
+
+    def events() -> Iterator[str]:
+        try:
+            plan = research_ask.plan_ask(question, study_ids=body.study_ids)
+            yield _sse(
+                "meta",
+                {"grounded": plan.grounded, "citations": [c.model_dump() for c in plan.citations]},
+            )
+            for token in research_ask.stream_answer(plan):
+                yield _sse("token", {"text": token})
+            yield _sse("done", {})
+        except LlmError as exc:
+            yield _sse("error", {"detail": str(exc)})
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

@@ -17,7 +17,17 @@ from io import BytesIO
 
 from pypdf import PdfReader
 
-from app import grobid, openalex, paper_extract, paper_leads, paper_parents, research_store, s2, scholarly
+from app import (
+    grobid,
+    openalex,
+    paper_extract,
+    paper_leads,
+    paper_parents,
+    research_ask,
+    research_store,
+    s2,
+    scholarly,
+)
 from app.config import ollama_model
 from app.tei import body_text, full_text, parse_tei
 
@@ -94,6 +104,8 @@ def _step_limitations(study_id: int) -> None:
         study_id, "limitation", [(item.text, item.quote) for item in limitations]
     )
     research_store.mark_extracted(study_id, ollama_model())
+    # The Extraction is complete: make it askable.
+    research_ask.reindex_quietly(study_id)
 
 
 def _paper_sections(study_id: int) -> list[tuple[str, str]]:

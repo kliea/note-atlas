@@ -1,6 +1,7 @@
 import type {
   ApiStatus,
   AskMeta,
+  ResearchAskMeta,
   Citation,
   Connection,
   ConnectionCreate,
@@ -212,17 +213,13 @@ function dispatchSse(event: string, raw: string, handlers: AskHandlers): void {
   }
 }
 
-export async function streamAsk(
-  question: string,
-  handlers: AskHandlers,
+async function postSse(
+  path: string,
+  payload: unknown,
+  onEvent: (event: string, raw: string) => void,
   signal?: AbortSignal,
-  noteIds?: number[],
 ): Promise<void> {
-  const payload: { question: string; note_ids?: number[] } = { question };
-  if (noteIds && noteIds.length > 0) {
-    payload.note_ids = noteIds;
-  }
-  const response = await fetch(`${API_BASE}/ask`, {
+  const response = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -255,13 +252,54 @@ export async function streamAsk(
           dataLines.push(line.slice(5).trimStart());
         }
       }
-      dispatchSse(eventName, dataLines.join("\n"), handlers);
+      onEvent(eventName, dataLines.join("\n"));
       split = buffer.indexOf("\n\n");
     }
     if (done) {
       break;
     }
   }
+}
+
+export async function streamAsk(
+  question: string,
+  handlers: AskHandlers,
+  signal?: AbortSignal,
+  noteIds?: number[],
+): Promise<void> {
+  const payload: { question: string; note_ids?: number[] } = { question };
+  if (noteIds && noteIds.length > 0) {
+    payload.note_ids = noteIds;
+  }
+  await postSse("/ask", payload, (event, raw) => dispatchSse(event, raw, handlers), signal);
+}
+
+type ResearchAskHandlers = {
+  onMeta: (meta: ResearchAskMeta) => void;
+  onToken: (text: string) => void;
+  onError: (detail: string) => void;
+};
+
+// Ask across Papers: the selected ones, or the whole Library when none are selected.
+export async function streamResearchAsk(
+  question: string,
+  studyIds: number[],
+  handlers: ResearchAskHandlers,
+  signal?: AbortSignal,
+): Promise<void> {
+  const payload = { question, study_ids: studyIds.length > 0 ? studyIds : null };
+  await postSse(
+    "/research/ask",
+    payload,
+    (event, raw) => {
+      if (!raw) return;
+      const data = JSON.parse(raw) as Record<string, unknown>;
+      if (event === "meta") handlers.onMeta(data as unknown as ResearchAskMeta);
+      else if (event === "token" && typeof data.text === "string") handlers.onToken(data.text);
+      else if (event === "error") handlers.onError(String(data.detail));
+    },
+    signal,
+  );
 }
 
 export type StudyFilter = "all" | "paper" | "lead";
