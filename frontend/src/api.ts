@@ -1,4 +1,5 @@
 import type {
+  ApiStatus,
   AskMeta,
   Citation,
   Connection,
@@ -12,6 +13,9 @@ import type {
   NoteSummary,
   Point,
   PointPatch,
+  Claim,
+  StudyDetail,
+  StudySummary,
 } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8888";
@@ -257,4 +261,74 @@ export async function streamAsk(
       break;
     }
   }
+}
+
+export type StudyFilter = "all" | "paper" | "lead";
+
+export function uploadPapers(files: File[]): Promise<StudySummary[]> {
+  const body = new FormData();
+  for (const file of files) {
+    body.append("files", file, file.name);
+  }
+  return requestJson<StudySummary[]>("/research/papers", { method: "POST", body });
+}
+
+export function fetchStudies(state: StudyFilter, q: string): Promise<StudySummary[]> {
+  const params = new URLSearchParams({ state, q });
+  return requestJson<StudySummary[]>(`/research/studies?${params.toString()}`);
+}
+
+export function fetchStudy(id: number): Promise<StudyDetail> {
+  return requestJson<StudyDetail>(`/research/studies/${id}`);
+}
+
+export function retryStudy(id: number): Promise<StudyDetail> {
+  return requestJson<StudyDetail>(`/research/studies/${id}/retry`, { method: "POST" });
+}
+
+export function addReaderLimitation(studyId: number, text: string): Promise<Claim> {
+  return requestJson<Claim>(`/research/studies/${studyId}/claims`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind: "limitation", text }),
+  });
+}
+
+export function editClaim(id: number, text: string): Promise<Claim> {
+  return requestJson<Claim>(`/research/claims/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+}
+
+export async function deleteClaim(id: number): Promise<void> {
+  const response = await fetch(`${API_BASE}/research/claims/${id}`, { method: "DELETE" });
+  if (!response.ok) {
+    throw new Error(`delete claim failed: ${response.status}`);
+  }
+}
+
+export function fetchApiStatus(): Promise<ApiStatus> {
+  return requestJson<ApiStatus>("/research/api-status");
+}
+
+export function setApiEnabled(enabled: boolean): Promise<ApiStatus> {
+  return requestJson<ApiStatus>("/research/api-status", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+export function decideIdentity(studyId: number, same: boolean): Promise<StudyDetail> {
+  return requestJson<StudyDetail>(`/research/studies/${studyId}/identity`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ same }),
+  });
+}
+
+export function retryResolution(studyId: number): Promise<StudyDetail> {
+  return requestJson<StudyDetail>(`/research/studies/${studyId}/resolve`, { method: "POST" });
 }

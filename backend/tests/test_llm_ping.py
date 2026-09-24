@@ -28,15 +28,16 @@ class _FakeResponse:
 
 def test_llm_ping_reachable_when_ollama_lists_model(monkeypatch: Any) -> None:
     def fake_urlopen(*args: object, **kwargs: object) -> _FakeResponse:
-        return _FakeResponse({"models": [{"name": "qwen2.5:3b-instruct"}]})
+        return _FakeResponse({"models": [{"name": "qwen3:4b"}]})
 
+    monkeypatch.setenv("OLLAMA_MODEL", "qwen3:4b")
     monkeypatch.setattr("app.llm.urllib.request.urlopen", fake_urlopen)
 
     response = client.get("/llm/ping")
     assert response.status_code == 200
     body = response.json()
     assert body["reachable"] is True
-    assert body["model"] == "qwen2.5:3b-instruct"
+    assert body["model"] == "qwen3:4b"
     assert body["model_present"] is True
     assert body["error"] is None
 

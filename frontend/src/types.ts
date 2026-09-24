@@ -121,3 +121,90 @@ export type AskMeta = {
   grounded: boolean;
   citations: Citation[];
 };
+
+// Research Track: a Study is a Lead (no PDF) or a Paper.
+export type StudyState = "lead" | "paper";
+
+export type ResolveStatus = "pending" | "running" | "done" | "waiting_budget" | "off" | "failed";
+
+export type ApiStatus = {
+  enabled: boolean;
+  openalex_key: boolean;
+  s2_key: boolean;
+  remaining_usd: number | null;
+  limit_usd: number | null;
+  reset_at: string | null;
+  waiting: number;
+};
+
+export type PossibleMatch = {
+  study_id: number;
+  title: string;
+  year: number | null;
+  authors: string[];
+};
+
+export type ResearchJob = {
+  status: "queued" | "running" | "done" | "failed";
+  step: string;
+  error: string | null;
+  queue_position: number | null;
+};
+
+export type StudySummary = {
+  id: number;
+  state: StudyState;
+  title: string;
+  authors: string[];
+  year: number | null;
+  venue: string | null;
+  doi: string | null;
+  arxiv_id: string | null;
+  openalex_id: string | null;
+  oa_url: string | null;
+  reference_count: number;
+  references_status: "ok" | "unavailable" | null;
+  resolve_status: ResolveStatus | null;
+  resolve_after: string | null;
+  job: ResearchJob | null;
+  created_at: string;
+};
+
+export type ReferenceItem = {
+  study_id: number;
+  state: StudyState;
+  title: string;
+  authors: string[];
+  year: number | null;
+  doi: string | null;
+  arxiv_id: string | null;
+  oa_url: string | null;
+  raw_reference: string;
+  mention_count: number;
+};
+
+export type Claim = {
+  id: number;
+  kind: "contribution" | "limitation";
+  author: "paper" | "reader";
+  text: string;
+  quote: string | null;
+  edited: boolean;
+  original_text: string | null;
+  stale: boolean;
+};
+
+export type StudyDetail = StudySummary & {
+  abstract: string | null;
+  original_filename: string | null;
+  research_question: string | null;
+  method: string | null;
+  key_results: string | null;
+  scope: string | null;
+  extraction_model: string | null;
+  extracted_at: string | null;
+  resolve_error: string | null;
+  possible_match: PossibleMatch | null;
+  claims: Claim[];
+  references: ReferenceItem[];
+};
