@@ -330,6 +330,8 @@ def test_suggestions_prefer_embeddings(
 def test_suggestions_shared_tag_fallback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from app.db import clear_chunk_index
+
     client = _client(tmp_path, monkeypatch)
     trees = client.post(
         "/notes",
@@ -343,6 +345,8 @@ def test_suggestions_shared_tag_fallback(
         "/notes",
         json={"title": "Pasta", "source": "", "raw_text": "noodles"},
     ).json()
+    # Force the tag path: create now indexes raw text, so clear vectors first.
+    clear_chunk_index()
     replace_note_extraction(
         trees["id"],
         [

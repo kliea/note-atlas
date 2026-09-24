@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, Response
 
 from pydantic import ValidationError
 
-from app.ambient import schedule_enrichment, schedule_extraction
+from app.ambient import ingest_note, schedule_enrichment, schedule_extraction
 from app.db import (
     create_note,
     delete_chunks_for_note,
@@ -41,10 +41,8 @@ router = APIRouter(prefix="/notes", tags=["notes"])
 @router.post("", response_model=NoteDetail, status_code=201)
 def post_note(payload: NoteCreate, background: BackgroundTasks) -> NoteDetail:
     created = create_note(payload)
-    if payload.source == "ask":
-        set_extract_status(created.id, "done")
-    else:
-        schedule_extraction(background, created.id)
+    # Always add to the corpus first; ask answers skip topic extraction.
+    ingest_note(background, created.id, extract=payload.source != "ask")
     pending = get_note(created.id)
     if pending is None:
         raise HTTPException(status_code=500, detail="note vanished after create")
@@ -76,11 +74,11 @@ def post_import(payload: dict[str, Any]) -> NoteDetail:
     )
     if topics:
         replace_note_extraction(created.id, topics)
-        try:
-            index_note(created.id)
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=502, detail=f"indexing failed: {exc}") from exc
-        set_extract_status(created.id, "done")
+    try:
+        index_note(created.id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"indexing failed: {exc}") from exc
+    set_extract_status(created.id, "done")
     updated = get_note(created.id)
     if updated is None:
         raise HTTPException(status_code=500, detail="note vanished during import")
