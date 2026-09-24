@@ -24,7 +24,16 @@ _QUESTION_PREFIX = re.compile(
     r"explain |define |describe |tell me about |summarize )"
 )
 
+# "summarize these notes" does not look like the note text, so vector search
+# scores it as off-topic even when the user just lassoed the sources.
+_OVERVIEW_QUESTION = re.compile(
+    r"(summar(?:y|ize|ise)|overview|tldr|all contents?|"
+    r"what(?:'s| is) in (?:these|this|the) notes?)",
+    re.I,
+)
+
 _SYSTEM = """You answer questions using ONLY the notes context in the user message.
+If the question asks to summarize, outline, or list what is in the notes, do that from the context.
 If the context does not contain the answer, reply exactly:
 I don't have that in the notes.
 Do not use outside knowledge. Do not invent facts. Be concise.
@@ -75,6 +84,34 @@ class AskPlan:
     context_hits: list[SearchHit]
 
 
+def _selected_note_hits(note_ids: Sequence[int]) -> list[SearchHit]:
+    """Build context from the notes the user pointed at, not from query similarity."""
+    hits: list[SearchHit] = []
+    for note_id in note_ids:
+        note = get_note(note_id)
+        if note is None:
+            continue
+        parts = [note.title.strip(), note.raw_text.strip()]
+        for topic in note.topics:
+            points = [point.text.strip() for point in topic.points if point.text.strip()]
+            if topic.title.strip():
+                parts.append(topic.title.strip())
+            parts.extend(points)
+        text = "\n".join(part for part in parts if part)
+        if not text:
+            continue
+        hits.append(
+            SearchHit(
+                chunk_id=0,
+                note_id=note.id,
+                topic_id=None,
+                text=text,
+                score=1.0,
+            )
+        )
+    return hits
+
+
 def plan_ask(
     question: str,
     k: int = 5,
@@ -85,7 +122,7 @@ def plan_ask(
     if retrieve is not None:
         hits = retrieve(question.strip(), k)
     elif note_ids:
-        hits = search(question.strip(), k=k, note_ids=list(note_ids))
+        hits = search(question.strip(), k=max(k, len(note_ids) * 2), note_ids=list(note_ids))
     else:
         hits = search(question.strip(), k=max(k, 10))
     if note_ids:
@@ -93,6 +130,12 @@ def plan_ask(
         hits = [hit for hit in hits if hit.note_id in allowed]
     hits = _boost_hits(question.strip(), hits)
     strong = [hit for hit in hits if hit.score >= SCORE_THRESHOLD]
+    # A lasso/selection already names the sources. Overview prompts and weak
+    # vector scores must still read those notes instead of declining.
+    if note_ids and (not strong or _OVERVIEW_QUESTION.search(question)):
+        selected = _selected_note_hits(note_ids)
+        if selected:
+            strong = selected
     citations = _citations(strong)
     return AskPlan(
         question=question.strip(),

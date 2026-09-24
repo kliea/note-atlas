@@ -92,6 +92,13 @@ def test_get_note_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 def test_create_ask_note_skips_background_extract(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from app.db import chunk_count
+    from app.embed import EMBEDDING_DIM
+
+    monkeypatch.setattr(
+        "app.index.embed_texts",
+        lambda texts: [[0.0] * EMBEDDING_DIM for _ in texts],
+    )
     client = _client(tmp_path, monkeypatch)
     created = client.post(
         "/notes",
@@ -104,3 +111,4 @@ def test_create_ask_note_skips_background_extract(
     assert created.status_code == 201
     assert created.json()["extract_status"] == "done"
     assert created.json()["topics"] == []
+    assert chunk_count() >= 1
