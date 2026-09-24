@@ -672,6 +672,19 @@ def edit_claim(claim_id: int, text: str) -> Claim | None:
         conn.close()
 
 
+def keep_claim(claim_id: int) -> Claim | None:
+    """The user keeps a Claim flagged "not in the latest extraction": clear the flag."""
+    conn = get_connection()
+    try:
+        cursor = conn.execute("UPDATE claims SET stale = 0 WHERE id = ? AND deleted = 0", (claim_id,))
+        if cursor.rowcount == 0:
+            return None
+        conn.commit()
+        return _claim(conn.execute("SELECT * FROM claims WHERE id = ?", (claim_id,)).fetchone())
+    finally:
+        conn.close()
+
+
 def delete_claim(claim_id: int) -> bool:
     """A paper's Claim becomes a tombstone so re-extraction can't bring it back; a reader's is removed."""
     conn = get_connection()

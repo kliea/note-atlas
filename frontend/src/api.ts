@@ -333,6 +333,10 @@ export function addReaderLimitation(studyId: number, text: string): Promise<Clai
   });
 }
 
+export function keepClaim(id: number): Promise<Claim> {
+  return requestJson<Claim>(`/research/claims/${id}/keep`, { method: "POST" });
+}
+
 export function editClaim(id: number, text: string): Promise<Claim> {
   return requestJson<Claim>(`/research/claims/${id}`, {
     method: "PATCH",
