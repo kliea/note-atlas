@@ -14,6 +14,7 @@ import type {
   Point,
   PointPatch,
   Claim,
+  ParentMark,
   StudyDetail,
   StudySummary,
 } from "./types";
@@ -331,4 +332,16 @@ export function decideIdentity(studyId: number, same: boolean): Promise<StudyDet
 
 export function retryResolution(studyId: number): Promise<StudyDetail> {
   return requestJson<StudyDetail>(`/research/studies/${studyId}/resolve`, { method: "POST" });
+}
+
+export function markParent(paperId: number, studyId: number, mark: ParentMark | null): Promise<StudyDetail> {
+  return requestJson<StudyDetail>(`/research/studies/${paperId}/parents/${studyId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mark }),
+  });
+}
+
+export function refreshParents(paperId: number): Promise<StudyDetail> {
+  return requestJson<StudyDetail>(`/research/studies/${paperId}/parents/refresh`, { method: "POST" });
 }

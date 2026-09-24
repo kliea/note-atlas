@@ -279,6 +279,28 @@ class ReferenceItem(BaseModel):
     mention_count: int = 0
 
 
+ParentMark = Literal["pinned", "unpinned"]
+
+
+class ParentItem(BaseModel):
+    study_id: int
+    state: StudyState
+    title: str
+    year: int | None = None
+    doi: str | None = None
+    arxiv_id: str | None = None
+    oa_url: str | None = None
+    mention_count: int = 0
+    score: float | None = None
+    reason: str | None = None
+    mark: ParentMark | None = None
+    is_parent: bool = False
+
+
+class ParentMarkUpdate(BaseModel):
+    mark: ParentMark | None = None
+
+
 class PossibleMatch(BaseModel):
     study_id: int
     title: str
@@ -340,4 +362,5 @@ class StudyDetail(StudySummary):
     resolve_error: str | None = None
     possible_match: PossibleMatch | None = None
     claims: list[Claim] = Field(default_factory=list)
+    parents: list[ParentItem] = Field(default_factory=list)
     references: list[ReferenceItem] = Field(default_factory=list)

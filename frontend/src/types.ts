@@ -137,6 +137,23 @@ export type ApiStatus = {
   waiting: number;
 };
 
+export type ParentMark = "pinned" | "unpinned";
+
+export type ParentItem = {
+  study_id: number;
+  state: StudyState;
+  title: string;
+  year: number | null;
+  doi: string | null;
+  arxiv_id: string | null;
+  oa_url: string | null;
+  mention_count: number;
+  score: number | null;
+  reason: string | null;
+  mark: ParentMark | null;
+  is_parent: boolean;
+};
+
 export type PossibleMatch = {
   study_id: number;
   title: string;
@@ -206,5 +223,6 @@ export type StudyDetail = StudySummary & {
   resolve_error: string | null;
   possible_match: PossibleMatch | null;
   claims: Claim[];
+  parents: ParentItem[];
   references: ReferenceItem[];
 };

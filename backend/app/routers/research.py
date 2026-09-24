@@ -15,6 +15,7 @@ from app.models import (
     ClaimCreate,
     ClaimPatch,
     IdentityDecision,
+    ParentMarkUpdate,
     StudyDetail,
     StudySummary,
 )
@@ -158,5 +159,29 @@ def retry_resolution(study_id: int) -> StudyDetail:
     research_store.set_resolve_status(study_id, "pending")
     resolver.notify()
     updated = research_store.get_study(study_id)
+    assert updated is not None
+    return updated
+
+
+@router.put("/studies/{paper_id}/parents/{study_id}", response_model=StudyDetail)
+def mark_parent(paper_id: int, study_id: int, payload: ParentMarkUpdate) -> StudyDetail:
+    """Pin a Reference as a Parent, unpin it, or clear the mark (back to the model's call)."""
+    if not research_store.set_parent_mark(paper_id, study_id, payload.mark):
+        raise HTTPException(status_code=404, detail="that study is not a reference of this paper")
+    study = research_store.get_study(paper_id)
+    assert study is not None
+    return study
+
+
+@router.post("/studies/{paper_id}/parents/refresh", response_model=StudyDetail)
+def refresh_parents(paper_id: int) -> StudyDetail:
+    """Re-run Parent selection in the background. Marks are kept."""
+    study = research_store.get_study(paper_id)
+    if study is None or study.state != "paper":
+        raise HTTPException(status_code=404, detail="paper not found")
+    if not research_store.queue_step(paper_id, "parents"):
+        raise HTTPException(status_code=409, detail="this paper is already being processed")
+    worker.notify()
+    updated = research_store.get_study(paper_id)
     assert updated is not None
     return updated

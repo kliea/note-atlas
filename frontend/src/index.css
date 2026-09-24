@@ -1185,3 +1185,34 @@ textarea {
   border-color: var(--accent);
   color: var(--fg);
 }
+
+.research-parents {
+  list-style: none;
+  padding: 0;
+  margin: 0.3rem 0 0.4rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.research-parent {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 0.45rem;
+  background: var(--panel);
+}
+
+.research-parent-not {
+  border-left-color: var(--line);
+  opacity: 0.85;
+}
+
+.research-parent-reason {
+  margin-top: 0.2rem;
+  font-size: 0.88rem;
+}
+
+.research-more {
+  font-size: 0.85rem;
+  margin-bottom: 0.6rem;
+}
