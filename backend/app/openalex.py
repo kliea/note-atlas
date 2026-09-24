@@ -27,6 +27,7 @@ _SELECT = ",".join(
     (
         "id", "doi", "title", "publication_year", "authorships", "primary_location",
         "best_oa_location", "open_access", "referenced_works", "ids", "fwci", "cited_by_count",
+        "abstract_inverted_index",
     )
 )
 
@@ -51,6 +52,8 @@ class Work:
     venue: str | None
     oa_url: str | None
     referenced_works: list[str]
+    fwci: float | None = None
+    abstract: str | None = None
 
 
 def normalize_doi(value: str | None) -> str | None:
@@ -75,6 +78,14 @@ def short_id(openalex_id: str) -> str:
     return openalex_id.rsplit("/", 1)[-1]
 
 
+def _abstract(inverted: dict[str, list[int]] | None) -> str | None:
+    """OpenAlex ships abstracts as {word: [positions]}; put the words back in order."""
+    if not inverted:
+        return None
+    placed = sorted((pos, word) for word, positions in inverted.items() for pos in positions)
+    return " ".join(word for _, word in placed) or None
+
+
 def _work(data: dict[str, Any]) -> Work:
     location = data.get("primary_location") or {}
     source = location.get("source") or {}
@@ -93,6 +104,8 @@ def _work(data: dict[str, Any]) -> Work:
         venue=source.get("display_name"),
         oa_url=best.get("pdf_url") or open_access.get("oa_url"),
         referenced_works=[short_id(w) for w in data.get("referenced_works") or []],
+        fwci=data.get("fwci"),
+        abstract=_abstract(data.get("abstract_inverted_index")),
     )
 
 
@@ -196,6 +209,29 @@ def works_by_filter(field: str, values: list[str], cache_prefix: str) -> dict[st
             if key:
                 found[key] = work
     return found
+
+
+def citing_works(openalex_ids: list[str], limit: int = _BATCH) -> list[Work]:
+    """Works citing any of these ($0.0001), most-cited first. The id list is cached as one query."""
+    ids = sorted({short_id(i) for i in openalex_ids if i})
+    if not ids:
+        return []
+    key = f"citing:{'|'.join(ids)}:{limit}"
+    body = research_store.cache_get(key)
+    if body is not None:
+        return [_work(item) for item in json.loads(body)]
+    data = _get(
+        "/works",
+        {
+            "filter": f"cites:{'|'.join(ids)}",
+            "select": _SELECT,
+            "sort": "cited_by_count:desc",
+            "per_page": str(limit),
+        },
+    )
+    results = list((data or {}).get("results", []))
+    research_store.cache_put({key: json.dumps(results)})
+    return [_cache(item) for item in results]
 
 
 def search_title(title: str) -> list[Work]:

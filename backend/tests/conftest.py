@@ -28,3 +28,13 @@ def _silence_parent_selection(monkeypatch: pytest.MonkeyPatch, request: pytest.F
     if request.node.get_closest_marker("real_parents"):
         return
     monkeypatch.setattr("app.paper_parents.choose_parents", lambda *_args, **_kwargs: {})
+
+
+@pytest.fixture(autouse=True)
+def _fake_lead_similarity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sibling ranking never loads MiniLM in tests; every candidate is equally similar."""
+    from app.embed import EMBEDDING_DIM
+
+    monkeypatch.setattr(
+        "app.paper_leads.embed_texts", lambda texts: [[1.0] + [0.0] * (EMBEDDING_DIM - 1) for _ in texts]
+    )
