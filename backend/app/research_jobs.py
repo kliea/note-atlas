@@ -177,7 +177,10 @@ def process_next_resolution() -> bool:
     if not due:
         return _process_next_leads()
     paper_id = due[0]
-    if not scholarly.api_enabled():
+    api = scholarly.api_enabled()
+    # With the API on, OpenAlex's title fills in before any fuzzy suggestion is made.
+    scholarly.settle_locally(paper_id, suggest=not api)
+    if not api:
         research_store.set_resolve_status(paper_id, "off")
         return True
     research_store.set_resolve_status(paper_id, "running")

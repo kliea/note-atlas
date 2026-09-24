@@ -176,6 +176,18 @@ def _resolve_references(paper_id: int, paper_work: openalex.Work | None) -> None
         _settle_identity(lead_id, is_paper=False)
 
 
+def settle_locally(paper_id: int, *, suggest: bool) -> None:
+    """Merge on the identifiers the PDF itself gives (DOI, arXiv id), with no network call:
+    an uploaded Lead becomes this Paper, and References naming one work become one Lead.
+    With `suggest`, also offer a close-title Lead for the user to confirm."""
+    _settle_identity(paper_id, is_paper=True)
+    for ref in research_store.reference_rows(paper_id):
+        if ref["state"] == "lead" and (ref["doi"] or ref["arxiv_id"]):
+            _settle_identity(int(ref["id"]), is_paper=False)
+    if suggest:
+        _suggest_match(paper_id)
+
+
 def resolve_paper(paper_id: int) -> None:
     """Resolve one Paper and its References. Raises openalex.BudgetExhausted / ApiError."""
     work = _resolve_paper_work(paper_id)
