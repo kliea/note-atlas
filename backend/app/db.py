@@ -25,7 +25,7 @@ from app.models import (
     Topic,
 )
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 _V1_STATEMENTS = (
     """
@@ -126,7 +126,7 @@ def _load_sqlite_vec(conn: sqlite3.Connection) -> None:
 
 
 def migrate(conn: sqlite3.Connection | None = None) -> None:
-    """Apply pending schema versions (1 notes, 2 chunks, 3 space, 4 extract_status, 5 point context, 6 research track, 7 scholarly resolution, 8 Siblings and Ancestors, 9 notes sent from a Paper)."""
+    """Apply pending schema versions (1 notes, 2 chunks, 3 space, 4 extract_status, 5 point context, 6 research track, 7 scholarly resolution, 8 Siblings and Ancestors, 9 notes sent from a Paper, 10 Research Track Ask index)."""
     owns_connection = conn is None
     if conn is None:
         conn = get_connection()
@@ -170,6 +170,9 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
         if 9 not in applied:
             _migrate_v9(conn)
             conn.execute("INSERT INTO schema_migrations (version) VALUES (9)")
+        if 10 not in applied:
+            _migrate_v10(conn)
+            conn.execute("INSERT INTO schema_migrations (version) VALUES (10)")
         conn.commit()
     finally:
         if owns_connection:
@@ -177,7 +180,7 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
 
 
 def migrate_down(target_version: int, conn: sqlite3.Connection | None = None) -> None:
-    """Roll schema back to target_version. v9 drops note → Paper links; v8 drops Siblings and Ancestors; v7 drops scholarly resolution; v6 drops the research track; v5 drops point context; v4 drops extract_status; v3 drops space."""
+    """Roll schema back to target_version. v10 drops the Research Ask index; v9 drops note → Paper links; v8 drops Siblings and Ancestors; v7 drops scholarly resolution; v6 drops the research track; v5 drops point context; v4 drops extract_status; v3 drops space."""
     if target_version < 2:
         raise ValueError("cannot roll back below schema version 2 (chunks + sqlite-vec)")
     owns_connection = conn is None
@@ -190,6 +193,9 @@ def migrate_down(target_version: int, conn: sqlite3.Connection | None = None) ->
             raise ValueError(
                 f"target version {target_version} is ahead of applied {current}"
             )
+        if 10 in applied and target_version < 10:
+            _downgrade_v10(conn)
+            conn.execute("DELETE FROM schema_migrations WHERE version = 10")
         if 9 in applied and target_version < 9:
             _downgrade_v9(conn)
             conn.execute("DELETE FROM schema_migrations WHERE version = 9")
@@ -515,6 +521,37 @@ def _downgrade_v9(conn: sqlite3.Connection) -> None:
     for name, _declaration in reversed(_V9_NOTE_COLUMNS):
         if name in existing:
             conn.execute(f"ALTER TABLE notes DROP COLUMN {name}")
+
+
+# Research Track Ask: its own index over Extraction fields and Claims, never mixed with the
+# board's chunks (board Ask sees notes only; Research Ask sees Papers only).
+_RESEARCH_CHUNKS_TABLE = """
+    CREATE TABLE IF NOT EXISTS research_chunks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        study_id INTEGER NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+        field TEXT,
+        claim_id INTEGER REFERENCES claims(id) ON DELETE CASCADE,
+        text TEXT NOT NULL,
+        CHECK ((field IS NULL) != (claim_id IS NULL))
+    )
+"""
+
+
+def _migrate_v10(conn: sqlite3.Connection) -> None:
+    conn.execute(_RESEARCH_CHUNKS_TABLE)
+    conn.execute("CREATE INDEX IF NOT EXISTS research_chunks_study ON research_chunks (study_id)")
+    conn.execute(
+        f"""
+        CREATE VIRTUAL TABLE IF NOT EXISTS research_vec USING vec0(
+            embedding float[{EMBEDDING_DIM}] distance_metric=cosine
+        )
+        """
+    )
+
+
+def _downgrade_v10(conn: sqlite3.Connection) -> None:
+    conn.execute("DROP TABLE IF EXISTS research_vec")
+    conn.execute("DROP TABLE IF EXISTS research_chunks")
 
 
 def init_db() -> None:

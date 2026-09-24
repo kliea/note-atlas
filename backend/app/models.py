@@ -377,6 +377,25 @@ class ClaimCreate(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
 
 
+class ResearchAskRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+    # The Papers selected in the Library; None or empty means the whole Library.
+    study_ids: list[int] | None = None
+
+
+class ResearchCitation(BaseModel):
+    """Context entry `number` of a Research Ask answer: one field or one Claim of one Paper."""
+
+    number: int
+    study_id: int
+    study_title: str
+    field: str | None = None
+    claim_id: int | None = None
+    label: str
+    text: str
+    score: float
+
+
 class SendToBoard(BaseModel):
     """Where the board's view was centred last, in board coordinates (if known)."""
 

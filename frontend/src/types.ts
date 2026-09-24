@@ -126,6 +126,23 @@ export type AskMeta = {
   citations: Citation[];
 };
 
+// One numbered context entry of a Research Track Ask answer: a field or a Claim of a Paper.
+export type ResearchCitation = {
+  number: number;
+  study_id: number;
+  study_title: string;
+  field: string | null;
+  claim_id: number | null;
+  label: string;
+  text: string;
+  score: number;
+};
+
+export type ResearchAskMeta = {
+  grounded: boolean;
+  citations: ResearchCitation[];
+};
+
 // Research Track: a Study is a Lead (no PDF) or a Paper.
 export type StudyState = "lead" | "paper";
 
