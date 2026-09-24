@@ -35,6 +35,10 @@ class NoteSummary(BaseModel):
     kind: NoteKind = "typed"
     pinned: bool = False
     extract_status: ExtractStatus = "idle"
+    # Set on notes sent from a Research Track Claim: the Paper chip's back-link.
+    study_id: int | None = None
+    claim_id: int | None = None
+    study_title: str | None = None
 
 
 class Point(BaseModel):
@@ -365,11 +369,19 @@ class Claim(BaseModel):
     edited: bool = False
     original_text: str | None = None
     stale: bool = False
+    sent_note_id: int | None = None
 
 
 class ClaimCreate(BaseModel):
     kind: Literal["limitation"] = "limitation"
     text: str = Field(min_length=1, max_length=2000)
+
+
+class SendToBoard(BaseModel):
+    """Where the board's view was centred last, in board coordinates (if known)."""
+
+    x: float | None = None
+    y: float | None = None
 
 
 class ClaimPatch(BaseModel):

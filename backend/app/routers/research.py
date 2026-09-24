@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Response, UploadFile
 
 from app import openalex, research_store, scholarly
+from app.ambient import ingest_note
+from app.db import create_note, delete_note
 from app.config import openalex_api_key, s2_api_key
 from app.models import (
     ApiStatus,
@@ -16,7 +18,9 @@ from app.models import (
     ClaimPatch,
     IdentityDecision,
     LeadDismissal,
+    NoteCreate,
     ParentMarkUpdate,
+    SendToBoard,
     StudyDetail,
     StudySummary,
 )
@@ -211,3 +215,36 @@ def dismiss_lead(paper_id: int, study_id: int, payload: LeadDismissal) -> StudyD
     study = research_store.get_study(paper_id)
     assert study is not None
     return study
+
+
+@router.post("/claims/{claim_id}/send", response_model=StudyDetail, status_code=201)
+def send_claim_to_board(claim_id: int, payload: SendToBoard, background: BackgroundTasks) -> StudyDetail:
+    """Put a Claim on the board as a verbatim note linked back to its Paper (a snapshot)."""
+    found = research_store.claim_for_board(claim_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="claim not found")
+    claim, study = found
+    if claim["sent_note_id"] is not None:
+        raise HTTPException(status_code=409, detail="this claim is already on the board")
+    title, body = research_store.board_note_text(claim, study)
+    centre = (payload.x, payload.y) if payload.x is not None and payload.y is not None else None
+    position = research_store.board_position(int(study["id"]), centre)
+    note = create_note(
+        NoteCreate(
+            title=title,
+            source="paper",
+            raw_text=body,
+            x=position[0] if position else None,
+            y=position[1] if position else None,
+        )
+    )
+    try:
+        research_store.link_board_note(note.id, int(study["id"]), claim_id)
+    except Exception:
+        delete_note(note.id)
+        raise
+    # Verbatim (no rephrase), but indexed and topic-extracted so it gets related-link suggestions.
+    ingest_note(background, note.id, extract=True)
+    updated = research_store.get_study(int(study["id"]))
+    assert updated is not None
+    return updated

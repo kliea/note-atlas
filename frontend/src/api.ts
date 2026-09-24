@@ -350,6 +350,17 @@ export function refreshLeads(paperId: number): Promise<StudyDetail> {
   return requestJson<StudyDetail>(`/research/studies/${paperId}/leads/refresh`, { method: "POST" });
 }
 
+export function sendClaimToBoard(
+  claimId: number,
+  centre: { x: number; y: number } | null,
+): Promise<StudyDetail> {
+  return requestJson<StudyDetail>(`/research/claims/${claimId}/send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(centre ?? {}),
+  });
+}
+
 export function dismissLead(paperId: number, studyId: number, dismissed: boolean): Promise<StudyDetail> {
   return requestJson<StudyDetail>(`/research/studies/${paperId}/leads/${studyId}`, {
     method: "PUT",

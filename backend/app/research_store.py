@@ -491,6 +491,7 @@ def _claim(row: sqlite3.Row) -> Claim:
         edited=bool(row["edited"]),
         original_text=row["original_text"],
         stale=bool(row["stale"]),
+        sent_note_id=row["sent_note_id"],
     )
 
 
@@ -1370,5 +1371,72 @@ def requeue_leads(statuses: tuple[str, ...]) -> int:
         )
         conn.commit()
         return int(cursor.rowcount)
+    finally:
+        conn.close()
+
+
+# --- Send to board ---------------------------------------------------------------------
+
+# Board card size and grid, mirrored from BoardView.tsx: a Paper's notes form a loose group.
+_CARD_W, _CARD_H, _SNAP = 240, 120, 24
+_GROUP_COLUMNS = 3
+
+
+def _snap(value: float) -> float:
+    return round(value / _SNAP) * _SNAP
+
+
+def claim_for_board(claim_id: int) -> tuple[sqlite3.Row, sqlite3.Row] | None:
+    """(Claim, its Paper) for a live Claim, else None."""
+    conn = get_connection()
+    try:
+        claim = conn.execute("SELECT * FROM claims WHERE id = ? AND deleted = 0", (claim_id,)).fetchone()
+        if claim is None:
+            return None
+        study = conn.execute("SELECT * FROM studies WHERE id = ?", (claim["study_id"],)).fetchone()
+        return (claim, study) if study is not None else None
+    finally:
+        conn.close()
+
+
+def board_note_text(claim: sqlite3.Row, study: sqlite3.Row) -> tuple[str, str]:
+    """(title, body): the Claim verbatim; then its quote and an attribution line."""
+    year = f" ({study['year']})" if study["year"] else ""
+    kind = "Contribution" if claim["kind"] == "contribution" else "Limitation"
+    whose = "paper's claim" if claim["author"] == "paper" else "your claim"
+    attribution = f"From: {study['title']}{year} · {kind} · {whose}"
+    quote = f"“{claim['quote']}”\n\n" if claim["quote"] else ""
+    return claim["text"], f"{quote}{attribution}"
+
+
+def board_position(study_id: int, centre: tuple[float, float] | None) -> tuple[float, float] | None:
+    """The first note from a Paper lands at the board's last view centre; later ones fill a
+    grid beside it. None means "let the board pick" (no centre known yet)."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT x, y FROM notes WHERE study_id = ? ORDER BY id", (study_id,)
+        ).fetchall()
+    finally:
+        conn.close()
+    if rows:
+        column, row = len(rows) % _GROUP_COLUMNS, len(rows) // _GROUP_COLUMNS
+        return (
+            _snap(float(rows[0]["x"]) + column * (_CARD_W + _SNAP)),
+            _snap(float(rows[0]["y"]) + row * (_CARD_H + 2 * _SNAP)),
+        )
+    if centre is None:
+        return None
+    return _snap(centre[0] - _CARD_W / 2), _snap(centre[1] - _CARD_H / 2)
+
+
+def link_board_note(note_id: int, study_id: int, claim_id: int) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE notes SET study_id = ?, claim_id = ? WHERE id = ?", (study_id, claim_id, note_id)
+        )
+        conn.execute("UPDATE claims SET sent_note_id = ? WHERE id = ?", (note_id, claim_id))
+        conn.commit()
     finally:
         conn.close()

@@ -35,6 +35,7 @@ import {
 } from "../api";
 import { useCommandStack } from "../hooks/useCommandStack";
 import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion";
+import { saveBoardCentre } from "../boardCentre";
 import { joinNoteText, splitNoteText } from "../noteText";
 import type { Citation, Connection, LinkSuggestion, NoteCreate, NoteDetail, Point as NotePoint } from "../types";
 import { BoardAskBar } from "./BoardAskBar";
@@ -75,6 +76,9 @@ function snapCoord(value: number): number {
 
 type BoardViewProps = {
   colorMode: ColorMode;
+  // Centre and select this note once the board has loaded (from a Claim's "on board" badge).
+  focusNoteId: number | null;
+  onOpenStudy: (studyId: number, claimId: number | null) => void;
 };
 
 function toNode(note: NoteDetail, editing = false): BoardNoteNodeType {
@@ -94,6 +98,9 @@ function toNode(note: NoteDetail, editing = false): BoardNoteNodeType {
       editing,
       extractStatus: note.extract_status ?? "idle",
       topics: note.topics ?? [],
+      studyId: note.study_id,
+      claimId: note.claim_id,
+      studyTitle: note.study_title,
     },
     draggable: !editing,
   };
@@ -251,9 +258,9 @@ function isTypingTarget(target: EventTarget | null): boolean {
   );
 }
 
-function BoardCanvas({ colorMode }: BoardViewProps) {
+function BoardCanvas({ colorMode, focusNoteId, onOpenStudy }: BoardViewProps) {
   const reduceMotion = usePrefersReducedMotion();
-  const { fitView, getNodes, screenToFlowPosition } = useReactFlow();
+  const { fitView, getNodes, screenToFlowPosition, setCenter } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState<BoardNoteNodeType>([]);
   const [edges, setEdges] = useEdgesState<BoardStringEdgeType>([]);
   const [ghosts, setGhosts] = useState<BoardGhostEdgeType[]>([]);
@@ -342,11 +349,32 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
     if (nodes.length === 0) {
       return;
     }
+    const focus = focusNoteId === null ? undefined : nodes.find((node) => node.data.noteId === focusNoteId);
+    if (focus) {
+      setNodes((current) => current.map((node) => ({ ...node, selected: node.id === focus.id })));
+    }
     const frame = requestAnimationFrame(() => {
+      if (focus) {
+        void setCenter(focus.position.x + NOTE_CARD_WIDTH / 2, focus.position.y + NOTE_CARD_HEIGHT / 2, {
+          zoom: 1,
+          duration: reduceMotion ? 0 : 280,
+        });
+        return;
+      }
       void fitView({ padding: 0.22, duration: reduceMotion ? 0 : 280, maxZoom: 1.15 });
     });
     return () => cancelAnimationFrame(frame);
+    // Runs once per load; `nodes` is read only to find the focus note.
   }, [fitView, loading, nodes.length, reduceMotion]);
+
+  const rememberCentre = useCallback(() => {
+    const canvas = document.querySelector(".board-canvas");
+    if (!(canvas instanceof HTMLElement)) {
+      return;
+    }
+    const box = canvas.getBoundingClientRect();
+    saveBoardCentre(screenToFlowPosition({ x: box.left + box.width / 2, y: box.top + box.height / 2 }));
+  }, [screenToFlowPosition]);
 
   const applyPoint = useCallback(
     (noteId: number, point: Point) => {
@@ -1230,8 +1258,10 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
       acceptPointContext,
       dismissPointContext,
       savePointContext,
+      openStudy: onOpenStudy,
     }),
     [
+      onOpenStudy,
       acceptPointContext,
       acceptSuggestion,
       commitEdit,
@@ -1698,6 +1728,8 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
           connectionLineComponent={BoardConnectionLine}
           onPaneClick={onPaneClick}
           onSelectionEnd={onSelectionEnd}
+          onMoveEnd={rememberCentre}
+          onInit={() => requestAnimationFrame(rememberCentre)}
           selectionOnDrag={false}
           selectionMode={SelectionMode.Partial}
           selectionKeyCode="Shift"
@@ -1754,11 +1786,11 @@ function BoardCanvas({ colorMode }: BoardViewProps) {
   );
 }
 
-export function BoardView({ colorMode }: BoardViewProps) {
+export function BoardView({ colorMode, focusNoteId, onOpenStudy }: BoardViewProps) {
   return (
     <section className="board-view" aria-label="Board">
       <ReactFlowProvider>
-        <BoardCanvas colorMode={colorMode} />
+        <BoardCanvas colorMode={colorMode} focusNoteId={focusNoteId} onOpenStudy={onOpenStudy} />
       </ReactFlowProvider>
     </section>
   );

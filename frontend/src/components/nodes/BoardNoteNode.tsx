@@ -14,6 +14,10 @@ export type BoardNoteData = {
   editing: boolean;
   extractStatus: ExtractStatus;
   topics: Topic[];
+  // Notes sent from a Research Track Claim link back to their Paper.
+  studyId?: number | null;
+  claimId?: number | null;
+  studyTitle?: string | null;
 };
 
 export type BoardNoteNode = Node<BoardNoteData, "boardNote">;
@@ -120,8 +124,22 @@ export function BoardNoteNode({ id, data, selected }: NodeProps<BoardNoteNode>) 
     >
       <BoardHandles connectable={connectable} title={data.title || "note"} />
       <p className="map-node-kicker">
-        {thinking ? "Extracting" : data.source === "ask" ? "Answer" : "Note"}
+        {thinking ? "Extracting" : data.source === "ask" ? "Answer" : data.source === "paper" ? "From a paper" : "Note"}
       </p>
+      {data.studyId ? (
+        <button
+          type="button"
+          className="board-paper-chip nodrag"
+          title="Open this Claim in the Research Track"
+          onClick={(event) => {
+            event.stopPropagation();
+            session?.openStudy(data.studyId as number, data.claimId ?? null);
+          }}
+          onDoubleClick={(event) => event.stopPropagation()}
+        >
+          📄 {data.studyTitle ?? "Paper"}
+        </button>
+      ) : null}
       <h3>{first || data.title || "Untitled"}</h3>
       {rest.length > 0 ? (
         <p className="board-note-preview">

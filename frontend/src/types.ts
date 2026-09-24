@@ -38,6 +38,10 @@ export type NoteSummary = {
   kind: NoteKind;
   pinned: boolean;
   extract_status: ExtractStatus;
+  // Set on notes sent from a Research Track Claim: the Paper chip's back-link.
+  study_id: number | null;
+  claim_id: number | null;
+  study_title: string | null;
 };
 
 export type NotePatch = {
@@ -229,6 +233,7 @@ export type Claim = {
   edited: boolean;
   original_text: string | null;
   stale: boolean;
+  sent_note_id: number | null;
 };
 
 export type StudyDetail = StudySummary & {
