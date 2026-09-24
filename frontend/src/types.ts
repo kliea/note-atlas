@@ -154,6 +154,26 @@ export type ParentItem = {
   is_parent: boolean;
 };
 
+export type LeadKind = "sibling" | "ancestor";
+
+export type LeadItem = {
+  study_id: number;
+  state: StudyState;
+  title: string;
+  year: number | null;
+  doi: string | null;
+  arxiv_id: string | null;
+  oa_url: string | null;
+  kind: LeadKind;
+  hop: number;
+  shared: number;
+  similarity: number | null;
+  fwci: number | null;
+  via: number[];
+};
+
+export type LeadsStatus = "pending" | "running" | "done" | "failed" | "waiting_budget";
+
 export type PossibleMatch = {
   study_id: number;
   title: string;
@@ -224,5 +244,11 @@ export type StudyDetail = StudySummary & {
   possible_match: PossibleMatch | null;
   claims: Claim[];
   parents: ParentItem[];
+  siblings: LeadItem[];
+  ancestors: LeadItem[];
+  leads_status: LeadsStatus | null;
+  leads_error: string | null;
+  leads_after: string | null;
+  leads_api_off: boolean;
   references: ReferenceItem[];
 };

@@ -7,6 +7,7 @@ that failed. Later slices append steps (extract, resolve, parents, leads).
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -16,9 +17,7 @@ from io import BytesIO
 
 from pypdf import PdfReader
 
-import json
-
-from app import grobid, openalex, paper_extract, paper_parents, research_store, s2, scholarly
+from app import grobid, openalex, paper_extract, paper_leads, paper_parents, research_store, s2, scholarly
 from app.config import ollama_model
 from app.tei import body_text, full_text, parse_tei
 
@@ -131,6 +130,9 @@ def _step_parents(study_id: int) -> None:
     research_store.apply_parent_judgements(
         study_id, {sid: (j.score, j.reason) for sid, j in judgements.items()}
     )
+    # New Parents move this Paper's Leads, and the Leads of every Paper that cites or lists it.
+    research_store.request_leads(study_id, with_dependents=True)
+    resolver.notify()
 
 
 STEPS: tuple[tuple[str, Callable[[int], None]], ...] = (
@@ -169,10 +171,11 @@ def process_next_job() -> bool:
 
 
 def process_next_resolution() -> bool:
-    """Resolve the next Paper against OpenAlex. Returns False when nothing is due."""
+    """Network work, one item per call: resolve the next Paper against OpenAlex, else
+    recompute the next Paper's Siblings and Ancestors. Returns False when nothing is due."""
     due = research_store.papers_to_resolve()
     if not due:
-        return False
+        return _process_next_leads()
     paper_id = due[0]
     if not scholarly.api_enabled():
         research_store.set_resolve_status(paper_id, "off")
@@ -191,6 +194,30 @@ def process_next_resolution() -> bool:
         return True
     research_store.set_resolve_status(paper_id, "done")
     return True
+
+
+def _process_next_leads() -> bool:
+    due = research_store.papers_needing_leads()
+    if not due:
+        return False
+    paper_id = due[0]
+    research_store.set_leads_status(paper_id, "running")
+    try:
+        paper_leads.compute_leads(paper_id)
+    except openalex.BudgetExhausted as exc:
+        research_store.set_leads_status(paper_id, "waiting_budget", after=exc.reset_at.isoformat())
+        return True
+    except Exception as exc:  # noqa: BLE001 — recorded for a manual refresh
+        log.exception("finding leads for study %s failed", paper_id)
+        research_store.set_leads_status(paper_id, "failed", error=str(exc)[:500])
+        return True
+    research_store.set_leads_status(paper_id, "done")
+    return True
+
+
+def _start_resolver() -> None:
+    research_store.requeue_resolution(("running",))
+    research_store.requeue_leads(("running",))
 
 
 class _Worker:
@@ -266,5 +293,5 @@ worker = _Worker(
 resolver = _Worker(
     "research-resolver",
     process_next_resolution,
-    on_start=lambda: research_store.requeue_resolution(("running",)),
+    on_start=_start_resolver,
 )

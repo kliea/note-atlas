@@ -15,6 +15,7 @@ from app.models import (
     ClaimCreate,
     ClaimPatch,
     IdentityDecision,
+    LeadDismissal,
     ParentMarkUpdate,
     StudyDetail,
     StudySummary,
@@ -130,6 +131,8 @@ def set_api_status(payload: ApiToggle) -> ApiStatus:
     research_store.set_settings({"scholarly_api": "on" if payload.enabled else "off"})
     if payload.enabled:
         research_store.requeue_resolution(("off",))
+        # Leads found with the API off came only from the Library; widen them now.
+        research_store.requeue_leads(("done", "failed"))
         resolver.notify()
     return api_status()
 
@@ -185,3 +188,26 @@ def refresh_parents(paper_id: int) -> StudyDetail:
     updated = research_store.get_study(paper_id)
     assert updated is not None
     return updated
+
+
+@router.post("/studies/{paper_id}/leads/refresh", response_model=StudyDetail)
+def refresh_leads(paper_id: int) -> StudyDetail:
+    """Recompute Siblings and Ancestors on the network worker. Dismissals are kept."""
+    study = research_store.get_study(paper_id)
+    if study is None or study.state != "paper":
+        raise HTTPException(status_code=404, detail="paper not found")
+    research_store.request_leads(paper_id)
+    resolver.notify()
+    updated = research_store.get_study(paper_id)
+    assert updated is not None
+    return updated
+
+
+@router.put("/studies/{paper_id}/leads/{study_id}", response_model=StudyDetail)
+def dismiss_lead(paper_id: int, study_id: int, payload: LeadDismissal) -> StudyDetail:
+    """Mark a Sibling or Ancestor "not relevant" for this Paper (or undo that)."""
+    if not research_store.set_dismissed(paper_id, study_id, payload.dismissed):
+        raise HTTPException(status_code=404, detail="study not found")
+    study = research_store.get_study(paper_id)
+    assert study is not None
+    return study

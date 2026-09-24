@@ -1216,3 +1216,60 @@ textarea {
   font-size: 0.85rem;
   margin-bottom: 0.6rem;
 }
+
+.research-lead-lead {
+  border-left-style: dashed;
+  border-left-color: var(--line);
+}
+
+.research-lineage {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.research-lineage-canvas {
+  height: min(62vh, 560px);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+}
+
+.research-lineage-hint {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+.research-node {
+  width: 240px;
+  padding: 0.5rem 0.65rem;
+  border-radius: 0.5rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--fg);
+}
+
+.research-node-lead {
+  border-style: dashed;
+  opacity: 0.85;
+}
+
+.research-node-paper {
+  border-color: var(--accent);
+}
+
+.research-node.focus {
+  box-shadow: 0 0 0 2px var(--accent);
+  background: var(--selected);
+}
+
+.research-node-role {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.research-node-title {
+  font-weight: 600;
+  margin: 2px 0;
+}

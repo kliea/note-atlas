@@ -86,7 +86,7 @@ export default function App() {
           <StatusPills backend={backend} model={model} modelName={modelName} />
         </div>
       </header>
-      {workspace === "research" ? <ResearchView /> : <BoardView colorMode={resolved} />}
+      {workspace === "research" ? <ResearchView colorMode={resolved} /> : <BoardView colorMode={resolved} />}
     </div>
   );
 }

@@ -26,7 +26,8 @@ Decision: [#6](https://github.com/kliea/note-atlas/issues/6), extended by [#10](
 
 - **Study** — one entity, state `lead | paper`. Metadata (title, authors, year, venue, DOI, arXiv id, OpenAlex id, OA link). For Papers: PDF at `data/papers/<study-id>.pdf`, Extraction text fields (research question, method, key results, scope), extraction provenance (model, parser version, date). Deleting a Paper removes the file and reverts it to a Lead.
 - **Claim** — one row per Contribution or Limitation: kind, text, author (`paper | reader`), verified quote, order, edited flag + original text, `stale` flag ("not in the latest extraction"), sent-to-board marker. Deleting a paper Claim leaves a **tombstone** (original text) instead of a hard delete.
-- **Cites edge** — Paper → Study for every bibliography entry (a Reference): raw reference string, in-text mention count, citation-context sentences, **Parent score + reason**, user Parent mark (pinned/unpinned). API-found Siblings are stored as Leads with their own cites edge to the shared Parent.
+- **Cites edge** — Paper → Study for every bibliography entry (a Reference): raw reference string, in-text mention count, citation-context sentences, **Parent score + reason**, user Parent mark (pinned/unpinned). Cites edges come only from a Paper's own reference list.
+- **Paper lead** (v8) — a Paper's ranked Siblings and Ancestors: kind, hop, rank, shared-Parent count, similarity, `fwci`, and the Studies that connect it (the Parents a Sibling cites, or the Parents / hop-1 Ancestors that cite an Ancestor). Recomputed as a whole on the network worker; API-found Siblings and Ancestors become Leads without cites edges, so uploading one never mixes them into its real reference list.
 - **Lead dismissal** — per (Paper, Study) "not relevant".
 - **Job** — one row per Paper upload: current step, per-step status, error.
 - **Setting** — scholarly API on/off (keys are **not** stored here).

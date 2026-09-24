@@ -301,6 +301,32 @@ class ParentMarkUpdate(BaseModel):
     mark: ParentMark | None = None
 
 
+class LeadDismissal(BaseModel):
+    dismissed: bool = True
+
+
+LeadKind = Literal["sibling", "ancestor"]
+LeadsStatus = Literal["pending", "running", "done", "failed", "waiting_budget"]
+
+
+class LeadItem(BaseModel):
+    """A Sibling or Ancestor of one Paper, in rank order."""
+
+    study_id: int
+    state: StudyState
+    title: str
+    year: int | None = None
+    doi: str | None = None
+    arxiv_id: str | None = None
+    oa_url: str | None = None
+    kind: LeadKind
+    hop: int = 1
+    shared: int = 0
+    similarity: float | None = None
+    fwci: float | None = None
+    via: list[int] = Field(default_factory=list)
+
+
 class PossibleMatch(BaseModel):
     study_id: int
     title: str
@@ -363,4 +389,10 @@ class StudyDetail(StudySummary):
     possible_match: PossibleMatch | None = None
     claims: list[Claim] = Field(default_factory=list)
     parents: list[ParentItem] = Field(default_factory=list)
+    siblings: list[LeadItem] = Field(default_factory=list)
+    ancestors: list[LeadItem] = Field(default_factory=list)
+    leads_status: LeadsStatus | None = None
+    leads_error: str | None = None
+    leads_after: str | None = None
+    leads_api_off: bool = False
     references: list[ReferenceItem] = Field(default_factory=list)

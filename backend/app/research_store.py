@@ -10,6 +10,7 @@ from pathlib import Path
 from app.db import get_connection, resolve_db_path
 from app.models import (
     Claim,
+    LeadItem,
     ParentItem,
     PossibleMatch,
     ReferenceItem,
@@ -362,6 +363,14 @@ def _possible_match(conn: sqlite3.Connection, match_id: int | None) -> PossibleM
     )
 
 
+# The user's mark wins; otherwise the model's score decides. SQL twin: _IS_PARENT_SQL.
+def _is_parent(mark: str | None, score: float | None) -> bool:
+    return mark == "pinned" or (mark is None and score is not None and score >= PARENT_THRESHOLD)
+
+
+_IS_PARENT_SQL = "(c.parent_mark = 'pinned' OR (c.parent_mark IS NULL AND c.parent_score >= ?))"
+
+
 def _parents(conn: sqlite3.Connection, paper_id: int) -> list[ParentItem]:
     """Every Reference the model scored or the user marked: Parents first, then by score."""
     rows = conn.execute(
@@ -376,7 +385,6 @@ def _parents(conn: sqlite3.Connection, paper_id: int) -> list[ParentItem]:
     items = []
     for row in rows:
         mark, score = row["parent_mark"], row["parent_score"]
-        is_parent = mark == "pinned" or (mark is None and score is not None and score >= PARENT_THRESHOLD)
         items.append(
             ParentItem(
                 study_id=int(row["id"]),
@@ -390,7 +398,7 @@ def _parents(conn: sqlite3.Connection, paper_id: int) -> list[ParentItem]:
                 score=score,
                 reason=row["parent_reason"],
                 mark=mark,
-                is_parent=is_parent,
+                is_parent=_is_parent(mark, score),
             )
         )
     items.sort(key=lambda p: (not p.is_parent, p.mark != "pinned", -(p.score or 0), p.study_id))
@@ -402,7 +410,8 @@ def count_waiting_for_budget() -> int:
     try:
         return int(
             conn.execute(
-                "SELECT COUNT(*) FROM studies WHERE resolve_status = 'waiting_budget'"
+                "SELECT COUNT(*) FROM studies "
+                "WHERE resolve_status = 'waiting_budget' OR leads_status = 'waiting_budget'"
             ).fetchone()[0]
         )
     finally:
@@ -454,6 +463,12 @@ def get_study(study_id: int) -> StudyDetail | None:
                 "possible_match": _possible_match(conn, row["possible_match_id"]),
                 "claims": _claims(conn, study_id),
                 "parents": _parents(conn, study_id),
+                "siblings": _leads(conn, study_id, "sibling"),
+                "ancestors": _leads(conn, study_id, "ancestor"),
+                "leads_status": row["leads_status"],
+                "leads_error": row["leads_error"],
+                "leads_after": row["leads_after"],
+                "leads_api_off": _api_off(conn),
                 "references": references,
             }
         )
@@ -874,6 +889,16 @@ def merge_studies(survivor_id: int, absorbed_id: int) -> None:
             (survivor_id, absorbed_id),
         )
         conn.execute(
+            "UPDATE OR IGNORE paper_leads SET study_id = ? WHERE study_id = ?",
+            (survivor_id, absorbed_id),
+        )
+        conn.execute(
+            "DELETE FROM paper_leads WHERE study_id = ? OR (paper_id = ? AND study_id = ?)",
+            (absorbed_id, survivor_id, survivor_id),
+        )
+        # A Lead that became a Paper changes the Lineage of every Paper that knew it.
+        _request_leads(conn, _dependents(conn, survivor_id))
+        conn.execute(
             "UPDATE studies SET possible_match_id = NULL WHERE possible_match_id = ?", (absorbed_id,)
         )
         conn.execute("DELETE FROM studies WHERE id = ?", (absorbed_id,))
@@ -1023,5 +1048,325 @@ def queue_step(study_id: int, step: str) -> bool:
         )
         conn.commit()
         return True
+    finally:
+        conn.close()
+
+
+# --- Siblings and Ancestors ----------------------------------------------------------
+
+
+def _api_off(conn: sqlite3.Connection) -> bool:
+    row = conn.execute("SELECT value FROM research_settings WHERE key = 'scholarly_api'").fetchone()
+    return row is not None and row["value"] == "off"
+
+
+def _leads(conn: sqlite3.Connection, paper_id: int, kind: str) -> list[LeadItem]:
+    """This Paper's ranked Siblings or Ancestors; dismissed ones are hidden immediately."""
+    rows = conn.execute(
+        """
+        SELECT s.id, s.state, s.title, s.year, s.doi, s.arxiv_id, s.oa_url,
+               l.kind, l.hop, l.shared, l.similarity, l.fwci, l.via_json
+        FROM paper_leads l JOIN studies s ON s.id = l.study_id
+        WHERE l.paper_id = ? AND l.kind = ?
+          AND l.study_id NOT IN (SELECT study_id FROM lead_dismissals WHERE paper_id = ?)
+        ORDER BY l.hop, l.rank
+        """,
+        (paper_id, kind, paper_id),
+    ).fetchall()
+    return [
+        LeadItem(
+            study_id=int(r["id"]),
+            state=r["state"],
+            title=r["title"],
+            year=r["year"],
+            doi=r["doi"],
+            arxiv_id=r["arxiv_id"],
+            oa_url=r["oa_url"],
+            kind=r["kind"],
+            hop=int(r["hop"]),
+            shared=int(r["shared"]),
+            similarity=r["similarity"],
+            fwci=r["fwci"],
+            via=json.loads(r["via_json"] or "[]"),
+        )
+        for r in rows
+    ]
+
+
+def parent_ids(paper_id: int) -> list[int]:
+    """The Studies this Paper counts as its Parents (user marks, then the model's threshold)."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            f"SELECT c.to_study_id FROM cites c WHERE c.from_study_id = ? AND {_IS_PARENT_SQL} "
+            "ORDER BY c.parent_mark IS NULL, c.parent_score DESC, c.to_study_id",
+            (paper_id, PARENT_THRESHOLD),
+        ).fetchall()
+        return [int(r[0]) for r in rows]
+    finally:
+        conn.close()
+
+
+def has_parent_judgements(paper_id: int) -> bool:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM cites WHERE from_study_id = ? "
+            "AND (parent_score IS NOT NULL OR parent_mark IS NOT NULL) LIMIT 1",
+            (paper_id,),
+        ).fetchone()
+        return row is not None
+    finally:
+        conn.close()
+
+
+def reference_ids(paper_id: int) -> set[int]:
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT to_study_id FROM cites WHERE from_study_id = ?", (paper_id,))
+        return {int(r[0]) for r in rows}
+    finally:
+        conn.close()
+
+
+def studies_by_id(ids: list[int] | set[int]) -> dict[int, sqlite3.Row]:
+    if not ids:
+        return {}
+    conn = get_connection()
+    try:
+        marks = ",".join("?" for _ in ids)
+        rows = conn.execute(f"SELECT * FROM studies WHERE id IN ({marks})", list(ids)).fetchall()
+        return {int(r["id"]): r for r in rows}
+    finally:
+        conn.close()
+
+
+def _aliases(conn: sqlite3.Connection, study_ids: list[int]) -> dict[int, int]:
+    """{Study id: which of these it is the same work as}, matching on DOI, arXiv id, or OpenAlex
+    id. Two Papers' reference lists name one work as separate Leads until resolution merges
+    them, and with the API off it never does."""
+    marks = ",".join("?" for _ in study_ids)
+    rows = conn.execute(
+        f"""
+        SELECT a.id AS given, b.id AS alias
+        FROM studies a JOIN studies b
+          ON b.id = a.id OR lower(b.doi) = lower(a.doi)
+             OR lower(b.arxiv_id) = lower(a.arxiv_id) OR b.openalex_id = a.openalex_id
+        WHERE a.id IN ({marks})
+        """,
+        list(study_ids),
+    ).fetchall()
+    return {int(r["alias"]): int(r["given"]) for r in rows}
+
+
+def papers_citing(study_ids: list[int]) -> dict[int, set[int]]:
+    """{Library Paper id: which of these Studies its own reference list cites}."""
+    if not study_ids:
+        return {}
+    conn = get_connection()
+    try:
+        aliases = _aliases(conn, study_ids)
+        marks = ",".join("?" for _ in aliases)
+        rows = conn.execute(
+            f"""
+            SELECT c.from_study_id, c.to_study_id
+            FROM cites c JOIN studies s ON s.id = c.from_study_id
+            WHERE s.state = 'paper' AND c.to_study_id IN ({marks})
+            """,
+            list(aliases),
+        ).fetchall()
+    finally:
+        conn.close()
+    out: dict[int, set[int]] = {}
+    for row in rows:
+        out.setdefault(int(row[0]), set()).add(aliases[int(row[1])])
+    return out
+
+
+def create_lead(
+    *,
+    title: str,
+    authors: list[str],
+    year: int | None,
+    venue: str | None,
+    doi: str | None,
+    openalex_id: str | None,
+    oa_url: str | None,
+    abstract: str | None,
+) -> int:
+    """A Lead found through the scholarly API rather than a reference list."""
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            """
+            INSERT INTO studies (
+                state, title, authors_json, year, venue, doi, openalex_id, oa_url, abstract,
+                created_at
+            )
+            VALUES ('lead', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (title, json.dumps(authors), year, venue, doi, openalex_id, oa_url, abstract, _now()),
+        )
+        conn.commit()
+        return int(cursor.lastrowid)
+    finally:
+        conn.close()
+
+
+def dismissed_ids(paper_id: int) -> set[int]:
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT study_id FROM lead_dismissals WHERE paper_id = ?", (paper_id,))
+        return {int(r[0]) for r in rows}
+    finally:
+        conn.close()
+
+
+def set_dismissed(paper_id: int, study_id: int, dismissed: bool) -> bool:
+    """Hide a Sibling or Ancestor from this Paper for good (or bring it back)."""
+    if paper_id == study_id:
+        return False
+    conn = get_connection()
+    try:
+        found = conn.execute(
+            "SELECT COUNT(*) FROM studies WHERE id IN (?, ?)", (paper_id, study_id)
+        ).fetchone()[0]
+        if found != 2:
+            return False
+        if dismissed:
+            conn.execute(
+                "INSERT OR IGNORE INTO lead_dismissals (paper_id, study_id) VALUES (?, ?)",
+                (paper_id, study_id),
+            )
+        else:
+            conn.execute(
+                "DELETE FROM lead_dismissals WHERE paper_id = ? AND study_id = ?", (paper_id, study_id)
+            )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def replace_paper_leads(paper_id: int, rows: list[dict[str, object]]) -> None:
+    """Swap in a fresh ranking. Each row: study_id, kind, hop, shared, similarity, fwci, via."""
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM paper_leads WHERE paper_id = ?", (paper_id,))
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO paper_leads (
+                paper_id, study_id, kind, hop, rank, shared, similarity, fwci, via_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    paper_id,
+                    row["study_id"],
+                    row["kind"],
+                    row.get("hop", 1),
+                    rank,
+                    row.get("shared", 0),
+                    row.get("similarity"),
+                    row.get("fwci"),
+                    json.dumps(row.get("via", [])),
+                )
+                for rank, row in enumerate(rows)
+            ],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_leads_status(
+    paper_id: int, status: str, *, error: str | None = None, after: str | None = None
+) -> None:
+    """Record a recompute's outcome. A request that arrived while it ran (status flipped back
+    to 'pending') is kept, so that change is picked up by the next pass."""
+    conn = get_connection()
+    try:
+        guard = "" if status == "running" else " AND leads_status = 'running'"
+        conn.execute(
+            f"UPDATE studies SET leads_status = ?, leads_error = ?, leads_after = ? WHERE id = ?{guard}",
+            (status, error, after, paper_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _request_leads(conn: sqlite3.Connection, paper_ids: list[int]) -> None:
+    if not paper_ids:
+        return
+    marks = ",".join("?" for _ in paper_ids)
+    conn.execute(
+        f"UPDATE studies SET leads_status = 'pending', leads_error = NULL, leads_after = NULL "
+        f"WHERE state = 'paper' AND id IN ({marks})",
+        paper_ids,
+    )
+
+
+def _dependents(conn: sqlite3.Connection, study_id: int) -> list[int]:
+    """Papers whose Leads involve this Study: they cite it, or list it as a Sibling or Ancestor."""
+    rows = conn.execute(
+        """
+        SELECT from_study_id FROM cites WHERE to_study_id = ?
+        UNION SELECT paper_id FROM paper_leads WHERE study_id = ?
+        """,
+        (study_id, study_id),
+    ).fetchall()
+    return [int(r[0]) for r in rows if int(r[0]) != study_id]
+
+
+def request_leads(paper_id: int, *, with_dependents: bool = False) -> None:
+    """Queue a Leads recompute for this Paper. With dependents, also every Paper whose Leads
+    involve it, and every Paper citing one of its Parents (it just became their Sibling)."""
+    co_citers = list(papers_citing(parent_ids(paper_id))) if with_dependents else []
+    conn = get_connection()
+    try:
+        ids = [paper_id] + (_dependents(conn, paper_id) + co_citers if with_dependents else [])
+        _request_leads(conn, ids)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def papers_needing_leads() -> list[int]:
+    """Papers due a Leads recompute whose Parents and resolution have both settled."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT s.id FROM studies s
+            WHERE s.state = 'paper'
+              AND (s.leads_status = 'pending'
+                   OR (s.leads_status = 'waiting_budget' AND s.leads_after <= ?))
+              AND COALESCE(s.resolve_status, '') IN ('done', 'off', 'failed')
+              AND NOT EXISTS (
+                  SELECT 1 FROM research_jobs j
+                  WHERE j.study_id = s.id AND j.status IN ('queued', 'running')
+              )
+            ORDER BY s.id
+            """,
+            (_now(),),
+        ).fetchall()
+        return [int(r[0]) for r in rows]
+    finally:
+        conn.close()
+
+
+def requeue_leads(statuses: tuple[str, ...]) -> int:
+    marks = ",".join("?" for _ in statuses)
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            f"UPDATE studies SET leads_status = 'pending', leads_error = NULL "
+            f"WHERE state = 'paper' AND leads_status IN ({marks})",
+            statuses,
+        )
+        conn.commit()
+        return int(cursor.rowcount)
     finally:
         conn.close()

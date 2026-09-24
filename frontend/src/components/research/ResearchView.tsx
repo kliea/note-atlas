@@ -7,7 +7,9 @@ import {
   fetchApiStatus,
   fetchStudies,
   fetchStudy,
+  dismissLead,
   markParent,
+  refreshLeads,
   refreshParents,
   retryResolution,
   retryStudy,
@@ -15,9 +17,12 @@ import {
   uploadPapers,
   type StudyFilter,
 } from "../../api";
-import type { ApiStatus, Claim, ParentMark, ResearchJob, StudyDetail, StudySummary } from "../../types";
+import type { ColorMode } from "@xyflow/react";
+import type { ApiStatus, Claim, LeadItem, ParentMark, ResearchJob, StudyDetail, StudySummary } from "../../types";
 import { ApiPill } from "./ApiPill";
 import { ClaimCard } from "./ClaimCard";
+import { LeadsSection } from "./LeadsSection";
+import { LineageGraph } from "./LineageGraph";
 import { ParentsSection } from "./ParentsSection";
 import { UploadDialog } from "./UploadDialog";
 
@@ -75,6 +80,10 @@ function isActive(job: ResearchJob | null): boolean {
 
 function isResolving(study: StudySummary | null): boolean {
   return study?.resolve_status === "pending" || study?.resolve_status === "running";
+}
+
+function isFindingLeads(study: StudyDetail | null): boolean {
+  return study?.leads_status === "pending" || study?.leads_status === "running";
 }
 
 function hoursUntil(iso: string | null): string {
@@ -143,7 +152,10 @@ function byline(study: StudySummary): string {
   return [authors, [study.venue, study.year].filter(Boolean).join(" ")].filter(Boolean).join(" · ");
 }
 
-export function ResearchView() {
+type ReaderTab = "reading" | "lineage";
+
+export function ResearchView({ colorMode }: { colorMode: ColorMode }) {
+  const [tab, setTab] = useState<ReaderTab>("reading");
   const [filter, setFilter] = useState<StudyFilter>("paper");
   const [query, setQuery] = useState("");
   const [studies, setStudies] = useState<StudySummary[]>([]);
@@ -200,7 +212,8 @@ export function ResearchView() {
     () =>
       studies.some((s) => isActive(s.job) || isResolving(s)) ||
       isActive(detail?.job ?? null) ||
-      isResolving(detail),
+      isResolving(detail) ||
+      isFindingLeads(detail),
     [studies, detail],
   );
 
@@ -285,6 +298,27 @@ export function ResearchView() {
     },
     [selectedId],
   );
+
+  const onDismissLead = useCallback(
+    async (studyId: number) => {
+      if (selectedId === null) return;
+      try {
+        setDetail(await dismissLead(selectedId, studyId, true));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [selectedId],
+  );
+
+  const onRefreshLeads = useCallback(async () => {
+    if (selectedId === null) return;
+    try {
+      setDetail(await refreshLeads(selectedId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [selectedId]);
 
   const onRefreshParents = useCallback(async () => {
     if (selectedId === null) return;
@@ -435,96 +469,128 @@ export function ResearchView() {
             <p className="research-muted">
               {byline(detail)} <StudyLinks study={detail} />
             </p>
-            {detail.job?.status === "failed" && (
-              <div className="research-callout research-callout-error">
-                <span>Processing failed: {detail.job.error}</span>
-                <button type="button" className="nav-btn" onClick={() => void retry(detail.id)}>
-                  Retry from {detail.job.step}
-                </button>
-              </div>
-            )}
-            {detail.possible_match && (
-              <div className="research-callout research-callout-question">
-                <span>
-                  Is this the Lead you already have? <strong>{detail.possible_match.title}</strong>
-                  {detail.possible_match.year ? ` (${detail.possible_match.year})` : ""}
-                </span>
-                <span className="research-row">
-                  <button type="button" className="nav-btn" onClick={() => void answerIdentity(true)}>
-                    Yes, same work
-                  </button>
-                  <button type="button" className="nav-btn" onClick={() => void answerIdentity(false)}>
-                    No
-                  </button>
-                </span>
-              </div>
-            )}
-            {detail.state === "paper" && <ResolveNotice detail={detail} onRetry={() => void retryResolve()} onTurnOn={() => void toggleApi()} />}
-            {detail.state === "lead" && (
-              <div className="research-callout">
-                This is a Lead — Atlas knows it from a reference list, not its PDF. Upload its PDF to read it.
-              </div>
-            )}
-            {detail.references_status === "unavailable" && (
-              <div className="research-callout">
-                References unavailable: the PDF parser wasn't reachable, so only plain text was kept.
-              </div>
-            )}
             {detail.state === "paper" && (
-              <PaperExtraction
-                detail={detail}
-                onEdit={onEditClaim}
-                onDelete={onDeleteClaim}
-                onAddLimitation={onAddLimitation}
-              />
+              <div className="research-row research-chips" role="tablist" aria-label="Paper view">
+                {(["reading", "lineage"] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === t}
+                    className={`research-chip ${tab === t ? "on" : ""}`}
+                    onClick={() => setTab(t)}
+                  >
+                    {t === "reading" ? "Reading" : "Lineage"}
+                  </button>
+                ))}
+              </div>
             )}
-            {detail.state === "paper" && (
+            {detail.state === "paper" && tab === "lineage" ? (
               <>
-                <SectionHeading title="Parent Papers" state={sectionState(detail.job, "parents")}>
-                  {sectionState(detail.job, "parents") === "done" && (
-                    <button
-                      type="button"
-                      className="research-link-btn research-heading-action"
-                      onClick={() => void onRefreshParents()}
-                      title="Re-run Parent selection. Your marks are kept."
-                    >
-                      refresh
-                    </button>
-                  )}
-                </SectionHeading>
-                {sectionState(detail.job, "parents") === "done" && (
-                  <ParentsSection
-                    parents={detail.parents}
-                    onMark={onMarkParent}
-                    onOpen={setSelectedId}
-                    links={(parent) => <StudyLinks study={parent} />}
-                  />
-                )}
+                <LeadsNotice detail={detail} onRefresh={() => void onRefreshLeads()} onTurnOn={() => void toggleApi()} />
+                <LineageGraph detail={detail} colorMode={colorMode} onOpen={setSelectedId} />
               </>
-            )}
-            {detail.abstract && (
-              <details className="research-abstract">
-                <summary>Abstract</summary>
-                <p>{detail.abstract}</p>
-              </details>
-            )}
-            {detail.state === "paper" && detail.references.length > 0 && (
+            ) : (
               <>
-                <h3 className="research-heading">References ({detail.references.length})</h3>
-                <ol className="research-references">
-                  {detail.references.map((ref) => (
-                    <li key={ref.study_id}>
-                      <button type="button" className="research-link-btn" onClick={() => setSelectedId(ref.study_id)}>
-                        {ref.title}
+              {detail.job?.status === "failed" && (
+                <div className="research-callout research-callout-error">
+                  <span>Processing failed: {detail.job.error}</span>
+                  <button type="button" className="nav-btn" onClick={() => void retry(detail.id)}>
+                    Retry from {detail.job.step}
+                  </button>
+                </div>
+              )}
+              {detail.possible_match && (
+                <div className="research-callout research-callout-question">
+                  <span>
+                    Is this the Lead you already have? <strong>{detail.possible_match.title}</strong>
+                    {detail.possible_match.year ? ` (${detail.possible_match.year})` : ""}
+                  </span>
+                  <span className="research-row">
+                    <button type="button" className="nav-btn" onClick={() => void answerIdentity(true)}>
+                      Yes, same work
+                    </button>
+                    <button type="button" className="nav-btn" onClick={() => void answerIdentity(false)}>
+                      No
+                    </button>
+                  </span>
+                </div>
+              )}
+              {detail.state === "paper" && <ResolveNotice detail={detail} onRetry={() => void retryResolve()} onTurnOn={() => void toggleApi()} />}
+              {detail.state === "lead" && (
+                <div className="research-callout">
+                  This is a Lead — Atlas knows it from a reference list, not its PDF. Upload its PDF to read it.
+                </div>
+              )}
+              {detail.references_status === "unavailable" && (
+                <div className="research-callout">
+                  References unavailable: the PDF parser wasn't reachable, so only plain text was kept.
+                </div>
+              )}
+              {detail.state === "paper" && (
+                <PaperExtraction
+                  detail={detail}
+                  onEdit={onEditClaim}
+                  onDelete={onDeleteClaim}
+                  onAddLimitation={onAddLimitation}
+                />
+              )}
+              {detail.state === "paper" && (
+                <>
+                  <SectionHeading title="Parent Papers" state={sectionState(detail.job, "parents")}>
+                    {sectionState(detail.job, "parents") === "done" && (
+                      <button
+                        type="button"
+                        className="research-link-btn research-heading-action"
+                        onClick={() => void onRefreshParents()}
+                        title="Re-run Parent selection. Your marks are kept."
+                      >
+                        refresh
                       </button>
-                      <span className="research-muted">
-                        {ref.year ? ` · ${ref.year}` : ""}
-                        {ref.mention_count > 0 ? ` · cited ${ref.mention_count}×` : ""}
-                      </span>{" "}
-                      <StateBadge state={ref.state} /> <StudyLinks study={ref} />
-                    </li>
-                  ))}
-                </ol>
+                    )}
+                  </SectionHeading>
+                  {sectionState(detail.job, "parents") === "done" && (
+                    <ParentsSection
+                      parents={detail.parents}
+                      onMark={onMarkParent}
+                      onOpen={setSelectedId}
+                      links={(parent) => <StudyLinks study={parent} />}
+                    />
+                  )}
+                  <PaperLeads
+                    detail={detail}
+                    onDismiss={onDismissLead}
+                    onRefresh={() => void onRefreshLeads()}
+                    onTurnOn={() => void toggleApi()}
+                    onOpen={setSelectedId}
+                  />
+                </>
+              )}
+              {detail.abstract && (
+                <details className="research-abstract">
+                  <summary>Abstract</summary>
+                  <p>{detail.abstract}</p>
+                </details>
+              )}
+              {detail.state === "paper" && detail.references.length > 0 && (
+                <>
+                  <h3 className="research-heading">References ({detail.references.length})</h3>
+                  <ol className="research-references">
+                    {detail.references.map((ref) => (
+                      <li key={ref.study_id}>
+                        <button type="button" className="research-link-btn" onClick={() => setSelectedId(ref.study_id)}>
+                          {ref.title}
+                        </button>
+                        <span className="research-muted">
+                          {ref.year ? ` · ${ref.year}` : ""}
+                          {ref.mention_count > 0 ? ` · cited ${ref.mention_count}×` : ""}
+                        </span>{" "}
+                        <StateBadge state={ref.state} /> <StudyLinks study={ref} />
+                      </li>
+                    ))}
+                  </ol>
+                </>
+              )}
               </>
             )}
           </>
@@ -681,4 +747,125 @@ function ResolveNotice({
     default:
       return null;
   }
+}
+
+function describeSibling(lead: LeadItem): string {
+  const parents = `cites ${lead.shared} of this paper's Parents`;
+  return lead.similarity === null ? parents : `${parents} · ${Math.round(lead.similarity * 100)}% similar`;
+}
+
+function describeAncestor(lead: LeadItem): string {
+  const via = lead.hop === 1 ? "Parents" : "Ancestors";
+  const cited = `cited by ${lead.shared} of this paper's ${via}`;
+  return lead.fwci === null ? cited : `${cited} · FWCI ${lead.fwci.toFixed(1)}`;
+}
+
+function LeadsNotice({
+  detail,
+  onRefresh,
+  onTurnOn,
+}: {
+  detail: StudyDetail;
+  onRefresh: () => void;
+  onTurnOn: () => void;
+}) {
+  switch (detail.leads_status) {
+    case "pending":
+    case "running":
+      return <p className="research-muted">Finding Siblings and Ancestors…</p>;
+    case "waiting_budget":
+      return (
+        <div className="research-callout">
+          Waiting for today's OpenAlex budget (resets {hoursUntil(detail.leads_after)}) to find Siblings and Ancestors.
+        </div>
+      );
+    case "failed":
+      return (
+        <div className="research-callout research-callout-error">
+          <span>Couldn't find Siblings and Ancestors: {detail.leads_error}</span>
+          <button type="button" className="nav-btn" onClick={onRefresh}>
+            Retry
+          </button>
+        </div>
+      );
+    default:
+      return detail.leads_api_off ? (
+        <div className="research-callout">
+          <span>
+            The scholarly API is off, so Siblings come only from your Library and Ancestors only through uploaded
+            Parents.
+          </span>
+          <button type="button" className="nav-btn" onClick={onTurnOn}>
+            Turn on
+          </button>
+        </div>
+      ) : null;
+  }
+}
+
+type PaperLeadsProps = {
+  detail: StudyDetail;
+  onDismiss: (studyId: number) => Promise<void>;
+  onRefresh: () => void;
+  onTurnOn: () => void;
+  onOpen: (studyId: number) => void;
+};
+
+function PaperLeads({ detail, onDismiss, onRefresh, onTurnOn, onOpen }: PaperLeadsProps) {
+  if (sectionState(detail.job, "parents") !== "done") return null;
+  const settled = detail.leads_status === "done";
+  const links = (lead: LeadItem) => <StudyLinks study={lead} />;
+  const hops = [1, 2].map((hop) => detail.ancestors.filter((a) => a.hop === hop));
+  return (
+    <>
+      <h3 className="research-heading">
+        Siblings
+        {settled && (
+          <button
+            type="button"
+            className="research-link-btn research-heading-action"
+            onClick={onRefresh}
+            title="Find Siblings and Ancestors again. Leads you marked not relevant stay hidden."
+          >
+            refresh leads
+          </button>
+        )}
+      </h3>
+      <LeadsNotice detail={detail} onRefresh={onRefresh} onTurnOn={onTurnOn} />
+      {settled && (
+        <LeadsSection
+          leads={detail.siblings}
+          shown={5}
+          empty="No Siblings found: nothing else cites this paper's Parents yet."
+          describe={describeSibling}
+          onDismiss={onDismiss}
+          onOpen={onOpen}
+          links={links}
+        />
+      )}
+      <h3 className="research-heading">Ancestors</h3>
+      {settled &&
+        (detail.ancestors.length === 0 ? (
+          <p className="research-muted">No Ancestors found: none of this paper's Parents has a known reference list.</p>
+        ) : (
+          hops.map(
+            (leads, index) =>
+              leads.length > 0 && (
+                <div key={index}>
+                  <p className="research-muted">{index === 0 ? "What its Parents build on" : "One step further back"}</p>
+                  <LeadsSection
+                    leads={leads}
+                    shown={3}
+                    empty=""
+                    describe={describeAncestor}
+                    onDismiss={onDismiss}
+                    onOpen={onOpen}
+                    links={links}
+                  />
+                </div>
+              ),
+          )
+        ))}
+    </>
+  );
 }

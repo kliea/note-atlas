@@ -345,3 +345,15 @@ export function markParent(paperId: number, studyId: number, mark: ParentMark | 
 export function refreshParents(paperId: number): Promise<StudyDetail> {
   return requestJson<StudyDetail>(`/research/studies/${paperId}/parents/refresh`, { method: "POST" });
 }
+
+export function refreshLeads(paperId: number): Promise<StudyDetail> {
+  return requestJson<StudyDetail>(`/research/studies/${paperId}/leads/refresh`, { method: "POST" });
+}
+
+export function dismissLead(paperId: number, studyId: number, dismissed: boolean): Promise<StudyDetail> {
+  return requestJson<StudyDetail>(`/research/studies/${paperId}/leads/${studyId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dismissed }),
+  });
+}

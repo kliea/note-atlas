@@ -25,7 +25,7 @@ from app.models import (
     Topic,
 )
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 _V1_STATEMENTS = (
     """
@@ -126,7 +126,7 @@ def _load_sqlite_vec(conn: sqlite3.Connection) -> None:
 
 
 def migrate(conn: sqlite3.Connection | None = None) -> None:
-    """Apply pending schema versions (1 notes, 2 chunks, 3 space, 4 extract_status, 5 point context, 6 research track, 7 scholarly resolution)."""
+    """Apply pending schema versions (1 notes, 2 chunks, 3 space, 4 extract_status, 5 point context, 6 research track, 7 scholarly resolution, 8 Siblings and Ancestors)."""
     owns_connection = conn is None
     if conn is None:
         conn = get_connection()
@@ -164,6 +164,9 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
         if 7 not in applied:
             _migrate_v7(conn)
             conn.execute("INSERT INTO schema_migrations (version) VALUES (7)")
+        if 8 not in applied:
+            _migrate_v8(conn)
+            conn.execute("INSERT INTO schema_migrations (version) VALUES (8)")
         conn.commit()
     finally:
         if owns_connection:
@@ -171,7 +174,7 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
 
 
 def migrate_down(target_version: int, conn: sqlite3.Connection | None = None) -> None:
-    """Roll schema back to target_version. v7 drops scholarly resolution; v6 drops the research track; v5 drops point context; v4 drops extract_status; v3 drops space."""
+    """Roll schema back to target_version. v8 drops Siblings and Ancestors; v7 drops scholarly resolution; v6 drops the research track; v5 drops point context; v4 drops extract_status; v3 drops space."""
     if target_version < 2:
         raise ValueError("cannot roll back below schema version 2 (chunks + sqlite-vec)")
     owns_connection = conn is None
@@ -184,6 +187,9 @@ def migrate_down(target_version: int, conn: sqlite3.Connection | None = None) ->
             raise ValueError(
                 f"target version {target_version} is ahead of applied {current}"
             )
+        if 8 in applied and target_version < 8:
+            _downgrade_v8(conn)
+            conn.execute("DELETE FROM schema_migrations WHERE version = 8")
         if 7 in applied and target_version < 7:
             _downgrade_v7(conn)
             conn.execute("DELETE FROM schema_migrations WHERE version = 7")
@@ -436,6 +442,48 @@ def _downgrade_v7(conn: sqlite3.Connection) -> None:
         conn.execute(f"DROP INDEX IF EXISTS {index}")
     existing = _column_names(conn, "studies")
     for name, _declaration in reversed(_V7_STUDY_COLUMNS):
+        if name in existing:
+            conn.execute(f"ALTER TABLE studies DROP COLUMN {name}")
+
+
+# Siblings and Ancestors: a Paper's ranked Leads, recomputed as a whole on the network worker.
+# `via_json` holds the Studies that connect a Lead to the Paper (the Parents a Sibling cites,
+# or the Parents / hop-1 Ancestors that cite an Ancestor) so the Lineage graph can draw edges.
+_V8_STUDY_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("leads_status", "TEXT"),
+    ("leads_error", "TEXT"),
+    ("leads_after", "TEXT"),
+)
+
+_PAPER_LEADS_TABLE = """
+    CREATE TABLE IF NOT EXISTS paper_leads (
+        paper_id INTEGER NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+        study_id INTEGER NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('sibling', 'ancestor')),
+        hop INTEGER NOT NULL DEFAULT 1,
+        rank INTEGER NOT NULL,
+        shared INTEGER NOT NULL DEFAULT 0,
+        similarity REAL,
+        fwci REAL,
+        via_json TEXT NOT NULL DEFAULT '[]',
+        PRIMARY KEY (paper_id, study_id)
+    )
+"""
+
+
+def _migrate_v8(conn: sqlite3.Connection) -> None:
+    existing = _column_names(conn, "studies")
+    for name, declaration in _V8_STUDY_COLUMNS:
+        if name not in existing:
+            conn.execute(f"ALTER TABLE studies ADD COLUMN {name} {declaration}")
+    conn.execute(_PAPER_LEADS_TABLE)
+    conn.execute("CREATE INDEX IF NOT EXISTS paper_leads_study ON paper_leads (study_id)")
+
+
+def _downgrade_v8(conn: sqlite3.Connection) -> None:
+    conn.execute("DROP TABLE IF EXISTS paper_leads")
+    existing = _column_names(conn, "studies")
+    for name, _declaration in reversed(_V8_STUDY_COLUMNS):
         if name in existing:
             conn.execute(f"ALTER TABLE studies DROP COLUMN {name}")
 
