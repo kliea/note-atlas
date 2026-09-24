@@ -261,6 +261,7 @@ export type StudyDetail = StudySummary & {
   key_results: string | null;
   scope: string | null;
   extraction_model: string | null;
+  extraction_parser: string | null;
   extracted_at: string | null;
   resolve_error: string | null;
   possible_match: PossibleMatch | null;

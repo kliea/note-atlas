@@ -377,6 +377,11 @@ class ClaimCreate(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
 
 
+class ReextractAll(BaseModel):
+    queued: int
+    busy: int
+
+
 class ResearchAskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     # The Papers selected in the Library; None or empty means the whole Library.
@@ -415,6 +420,7 @@ class StudyDetail(StudySummary):
     key_results: str | None = None
     scope: str | None = None
     extraction_model: str | None = None
+    extraction_parser: str | None = None
     extracted_at: str | None = None
     resolve_error: str | None = None
     possible_match: PossibleMatch | None = None

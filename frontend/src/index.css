@@ -1337,3 +1337,8 @@ textarea {
   outline-offset: 2px;
   border-radius: 0.3rem;
 }
+
+.research-provenance {
+  margin: -0.2rem 0 0.4rem;
+  font-size: 0.8rem;
+}

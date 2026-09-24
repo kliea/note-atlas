@@ -406,3 +406,11 @@ export function dismissLead(paperId: number, studyId: number, dismissed: boolean
     body: JSON.stringify({ dismissed }),
   });
 }
+
+export function reextractPaper(paperId: number): Promise<StudyDetail> {
+  return requestJson<StudyDetail>(`/research/studies/${paperId}/reextract`, { method: "POST" });
+}
+
+export function reextractAll(): Promise<{ queued: number; busy: number }> {
+  return requestJson<{ queued: number; busy: number }>("/research/reextract-all", { method: "POST" });
+}

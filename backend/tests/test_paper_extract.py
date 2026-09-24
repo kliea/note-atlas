@@ -13,7 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pypdf import PdfWriter
 
-from app import grobid, llm, paper_extract, research_jobs, research_store
+from app import grobid, llm, paper_extract, reextract, research_jobs, research_store
 from app.db import init_db
 from app.llm import LlmError
 from app.main import app
@@ -297,10 +297,8 @@ def test_rerunning_extraction_keeps_edits_and_never_restores_deleted(client: Tes
     client.delete(f"/research/claims/{claims[2]['id']}")
     client.post(f"/research/studies/{study_id}/claims", json={"text": "Mine."})
 
-    research_store.replace_paper_claims(
-        study_id, "contribution", [(c, None) for c in (claims[0]["text"], claims[1]["text"])]
-    )
-    research_store.replace_paper_claims(study_id, "limitation", [(claims[2]["text"], "q")])
+    reextract.merge_claims(study_id, "contribution", [(c, None) for c in (claims[0]["text"], claims[1]["text"])])
+    reextract.merge_claims(study_id, "limitation", [(claims[2]["text"], "q")])
 
     texts = [c["text"] for c in client.get(f"/research/studies/{study_id}").json()["claims"]]
     assert texts.count("My wording.") == 1

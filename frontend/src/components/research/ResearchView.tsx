@@ -9,6 +9,8 @@ import {
   fetchStudy,
   dismissLead,
   markParent,
+  reextractAll,
+  reextractPaper,
   refreshLeads,
   refreshParents,
   retryResolution,
@@ -361,6 +363,31 @@ export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProp
     [selectedId],
   );
 
+  const onReextract = useCallback(async () => {
+    if (selectedId === null) return;
+    try {
+      setDetail(await reextractPaper(selectedId));
+      await loadStudies();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [selectedId, loadStudies]);
+
+  const onReextractAll = useCallback(async () => {
+    const ok = window.confirm(
+      "Re-extract every Paper with the current model? Your edits, sent Claims, your own Limitations, and deletions are kept.",
+    );
+    if (!ok) return;
+    try {
+      const { queued, busy } = await reextractAll();
+      setError(busy > 0 ? `Queued ${queued}; ${busy} already being processed were skipped.` : null);
+      await loadStudies();
+      await loadDetail();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [loadStudies, loadDetail]);
+
   const onSendClaim = useCallback(
     async (claimId: number) => {
       try {
@@ -472,6 +499,14 @@ export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProp
         </div>
         <div className="research-row research-api-row">
           <ApiPill status={apiStatus} onToggle={() => void toggleApi()} />
+          <button
+            type="button"
+            className="research-link-btn"
+            onClick={() => void onReextractAll()}
+            title="After a model or parser upgrade: re-run extraction on every Paper"
+          >
+            re-extract all
+          </button>
         </div>
         <div className="research-row research-chips" role="group" aria-label="Filter studies">
           {FILTERS.map((f) => (
@@ -638,6 +673,7 @@ export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProp
                   onDelete={onDeleteClaim}
                   onAddLimitation={onAddLimitation}
                   onSend={onSendClaim}
+                  onReextract={() => void onReextract()}
                   onOpenNote={onOpenNote}
                   highlightClaimId={highlightClaimId}
                   highlightField={highlightField}
@@ -724,10 +760,16 @@ type PaperExtractionProps = {
   onDelete: (id: number) => Promise<void>;
   onAddLimitation: (text: string) => Promise<void>;
   onSend: (id: number) => Promise<void>;
+  onReextract: () => void;
   onOpenNote: (noteId: number) => void;
   highlightClaimId: number | null;
   highlightField: string | null;
 };
+
+function provenance(detail: StudyDetail): string {
+  const date = detail.extracted_at ? new Date(detail.extracted_at).toLocaleDateString() : null;
+  return [detail.extraction_model, detail.extraction_parser, date].filter(Boolean).join(" · ");
+}
 
 const FIELDS: { key: "research_question" | "method" | "key_results" | "scope"; label: string }[] = [
   { key: "research_question", label: "Research question" },
@@ -742,6 +784,7 @@ function PaperExtraction({
   onDelete,
   onAddLimitation,
   onSend,
+  onReextract,
   onOpenNote,
   highlightClaimId,
   highlightField,
@@ -787,7 +830,21 @@ function PaperExtraction({
 
   return (
     <>
-      <SectionHeading title="Extraction" state={fieldsState} />
+      <SectionHeading title="Extraction" state={fieldsState}>
+        {fieldsState === "done" && detail.extracted_at && !isActive(detail.job) && (
+          <button
+            type="button"
+            className="research-link-btn research-heading-action"
+            onClick={onReextract}
+            title="Run extraction again. Your edits, sent Claims, your own Limitations, and deletions are kept."
+          >
+            re-extract
+          </button>
+        )}
+      </SectionHeading>
+      {fieldsState === "done" && detail.extracted_at && (
+        <p className="research-muted research-provenance">Extracted with {provenance(detail)}</p>
+      )}
       {fieldsState === "done" && (
         <dl className="research-fields">
           {FIELDS.map(({ key, label }) => (

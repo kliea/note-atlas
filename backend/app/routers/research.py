@@ -26,6 +26,7 @@ from app.models import (
     LeadDismissal,
     NoteCreate,
     ParentMarkUpdate,
+    ReextractAll,
     ResearchAskRequest,
     SendToBoard,
     StudyDetail,
@@ -290,3 +291,37 @@ def ask_papers(body: ResearchAskRequest) -> StreamingResponse:
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# Re-extraction re-runs from the Extraction step (Parents follow, marks kept); the parse and
+# its References stay. It is user-triggered only.
+_REEXTRACT_FROM = "extract"
+
+
+@router.post("/studies/{paper_id}/reextract", response_model=StudyDetail)
+def reextract_paper(paper_id: int) -> StudyDetail:
+    """Re-run extraction; edited, sent, reader, and deleted Claims are respected."""
+    study = research_store.get_study(paper_id)
+    if study is None or study.state != "paper":
+        raise HTTPException(status_code=404, detail="paper not found")
+    if study.extracted_at is None:
+        raise HTTPException(status_code=409, detail="this paper hasn't been extracted yet")
+    if not research_store.queue_step(paper_id, _REEXTRACT_FROM):
+        raise HTTPException(status_code=409, detail="this paper is already being processed")
+    worker.notify()
+    updated = research_store.get_study(paper_id)
+    assert updated is not None
+    return updated
+
+
+@router.post("/reextract-all", response_model=ReextractAll)
+def reextract_all() -> ReextractAll:
+    """After a model or parser upgrade: queue every extracted Paper that isn't busy."""
+    queued = busy = 0
+    for paper_id in research_store.extracted_paper_ids():
+        if research_store.queue_step(paper_id, _REEXTRACT_FROM):
+            queued += 1
+        else:
+            busy += 1
+    worker.notify()
+    return ReextractAll(queued=queued, busy=busy)
