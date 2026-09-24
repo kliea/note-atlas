@@ -1,10 +1,11 @@
 """Resolve a Paper and its References to canonical works, and settle Study identity.
 
-Order of lookups keeps cost low (docs/specs/research-track.md, "Leads"; issue #18):
-1. The Paper: DOI → arXiv DOI (both free) → title search ($0.001) only as a last resort.
+Works come from the active source (`app.sources`: OpenAlex, or Semantic Scholar with the
+user's key). Order of lookups keeps cost low (docs/specs/research-track.md, "Leads"; issue #18):
+1. The Paper: DOI → arXiv id → title search only as a last resort.
 2. Its References: match against the Paper's own `referenced_works` (one batch), then batch
    DOI/arXiv lookups, then Crossref title→DOI (free) for the rest.
-Strong identifiers (DOI, arXiv, OpenAlex id) merge Studies automatically; a close title
+Strong identifiers (DOI, arXiv, OpenAlex or S2 id) merge Studies automatically; a close title
 alone only suggests a match for the user to confirm.
 """
 
@@ -15,7 +16,9 @@ import logging
 from collections.abc import Iterable
 from difflib import SequenceMatcher
 
-from app import crossref, openalex, research_store
+from app import crossref, openalex, research_store, sources
+from app.sources import Source
+from app.works import Work
 from app.paper_extract import normalize
 
 log = logging.getLogger(__name__)
@@ -42,7 +45,7 @@ def _years_agree(a: int | None, b: int | None) -> bool:
     return a is None or b is None or abs(a - b) <= 1
 
 
-def _best_title_match(title: str, year: int | None, works: Iterable[openalex.Work]) -> openalex.Work | None:
+def _best_title_match(title: str, year: int | None, works: Iterable[Work]) -> Work | None:
     best, best_score = None, TITLE_MATCH
     for work in works:
         score = title_similarity(title, work.title)
@@ -51,7 +54,7 @@ def _best_title_match(title: str, year: int | None, works: Iterable[openalex.Wor
     return best
 
 
-def _apply(study_id: int, work: openalex.Work) -> None:
+def _apply(study_id: int, work: Work, source: Source) -> None:
     research_store.apply_work(
         study_id,
         title=work.title,
@@ -59,8 +62,9 @@ def _apply(study_id: int, work: openalex.Work) -> None:
         year=work.year,
         venue=work.venue,
         doi=work.doi,
-        openalex_id=work.openalex_id,
         oa_url=work.oa_url,
+        arxiv_id=work.arxiv_id,
+        **{"openalex_id": None, **sources.id_kwargs(source, work.id)},
     )
 
 
@@ -70,7 +74,7 @@ def _settle_identity(study_id: int, *, is_paper: bool) -> int:
     if row is None:
         return study_id
     same = research_store.find_same_study(
-        study_id, doi=row["doi"], arxiv_id=row["arxiv_id"], openalex_id=row["openalex_id"]
+        study_id, doi=row["doi"], arxiv_id=row["arxiv_id"], openalex_id=row["openalex_id"], s2_id=row["s2_id"]
     )
     if same is None:
         return study_id
@@ -96,28 +100,26 @@ def _suggest_match(paper_id: int) -> None:
         research_store.set_possible_match(paper_id, best_id)
 
 
-def _resolve_paper_work(paper_id: int) -> openalex.Work | None:
+def _resolve_paper_work(paper_id: int, source: Source) -> Work | None:
     row = research_store.study_row(paper_id)
     if row is None:
         return None
-    for doi in (row["doi"], openalex.arxiv_doi(row["arxiv_id"])):
-        if doi:
-            work = openalex.work_by_doi(doi)
-            if work:
-                return work
-    if len(row["title"] or "") >= _MIN_TITLE_CHARS:
-        return _best_title_match(row["title"], row["year"], openalex.search_title(row["title"]))
-    return None
+    work = source.work_by_doi(row["doi"]) if row["doi"] else None
+    if work is None and row["arxiv_id"]:
+        work = source.work_by_arxiv(row["arxiv_id"])
+    if work is None and len(row["title"] or "") >= _MIN_TITLE_CHARS:
+        work = _best_title_match(row["title"], row["year"], source.search_title(row["title"]))
+    return work
 
 
-def _resolve_references(paper_id: int, paper_work: openalex.Work | None) -> None:
+def _resolve_references(paper_id: int, paper_work: Work | None, source: Source) -> None:
     refs = [dict(r) for r in research_store.reference_rows(paper_id) if r["state"] == "lead"]
-    unresolved = [r for r in refs if not r["openalex_id"]]
-    resolved: list[tuple[int, openalex.Work]] = []
+    unresolved = [r for r in refs if not r[source.id_column]]
+    resolved: list[tuple[int, Work]] = []
 
     # 1. The Paper's own reference list, matched by title (one cheap batch).
     if paper_work and paper_work.referenced_works and unresolved:
-        works = list(openalex.works_by_filter("openalex_id", paper_work.referenced_works, "openalex").values())
+        works = list(source.works_by_ids(paper_work.referenced_works).values())
         for ref in list(unresolved):
             match = _best_title_match(ref["title"], ref["year"], works)
             if match:
@@ -126,20 +128,18 @@ def _resolve_references(paper_id: int, paper_work: openalex.Work | None) -> None
                 unresolved.remove(ref)
 
     # 2. References that carry a DOI or arXiv id.
-    by_doi: dict[str, dict] = {}
-    for ref in unresolved:
-        doi = openalex.normalize_doi(ref["doi"]) or openalex.arxiv_doi(ref["arxiv_id"])
-        if doi:
-            by_doi[doi] = ref
-    if by_doi:
-        found = openalex.works_by_filter("doi", list(by_doi), "doi")
-        for doi, work in found.items():
-            ref = by_doi.get(doi)
-            if ref is not None:
-                resolved.append((ref["id"], work))
-                unresolved.remove(ref)
+    by_doi = {doi: ref for ref in unresolved if (doi := openalex.normalize_doi(ref["doi"]))}
+    for doi, work in (source.works_by_dois(list(by_doi)) if by_doi else {}).items():
+        if doi in by_doi:
+            resolved.append((by_doi[doi]["id"], work))
+            unresolved.remove(by_doi[doi])
+    by_arxiv = {ref["arxiv_id"]: ref for ref in unresolved if ref["arxiv_id"]}
+    for arxiv_id, work in (source.works_by_arxiv(list(by_arxiv)) if by_arxiv else {}).items():
+        if arxiv_id in by_arxiv:
+            resolved.append((by_arxiv[arxiv_id]["id"], work))
+            unresolved.remove(by_arxiv[arxiv_id])
 
-    # 3. Crossref title→DOI for the rest (free), then one OpenAlex batch for those DOIs.
+    # 3. Crossref title→DOI for the rest (free), then one batch for those DOIs.
     crossref_dois: dict[str, dict] = {}
     for ref in unresolved:
         if len(ref["title"] or "") < _MIN_TITLE_CHARS or ref["doi"]:
@@ -160,7 +160,7 @@ def _resolve_references(paper_id: int, paper_work: openalex.Work | None) -> None
                 crossref_dois[str(candidate["doi"])] = ref
                 break
     if crossref_dois:
-        found = openalex.works_by_filter("doi", list(crossref_dois), "doi")
+        found = source.works_by_dois(list(crossref_dois))
         for doi, ref in crossref_dois.items():
             work = found.get(doi)
             if work:
@@ -172,7 +172,7 @@ def _resolve_references(paper_id: int, paper_work: openalex.Work | None) -> None
                 )
 
     for lead_id, work in resolved:
-        _apply(lead_id, work)
+        _apply(lead_id, work, source)
         _settle_identity(lead_id, is_paper=False)
 
 
@@ -189,12 +189,14 @@ def settle_locally(paper_id: int, *, suggest: bool) -> None:
 
 
 def resolve_paper(paper_id: int) -> None:
-    """Resolve one Paper and its References. Raises openalex.BudgetExhausted / ApiError."""
-    work = _resolve_paper_work(paper_id)
+    """Resolve one Paper and its References against the active source.
+    Raises works.BudgetExhausted / ApiError."""
+    source = sources.active()
+    work = _resolve_paper_work(paper_id, source)
     if work:
-        _apply(paper_id, work)
+        _apply(paper_id, work, source)
         _settle_identity(paper_id, is_paper=True)
-    _resolve_references(paper_id, work)
+    _resolve_references(paper_id, work, source)
     _suggest_match(paper_id)
 
 

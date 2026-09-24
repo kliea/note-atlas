@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -18,6 +17,9 @@ import httpx
 
 from app import research_store
 from app.config import openalex_api_key
+from app.works import ApiError, BudgetExhausted, Work
+
+__all__ = ["ApiError", "BudgetExhausted", "Work"]
 
 BASE_URL = "https://api.openalex.org"
 USER_AGENT = "NoteAtlas/0.1"
@@ -30,30 +32,6 @@ _SELECT = ",".join(
         "abstract_inverted_index",
     )
 )
-
-
-class ApiError(RuntimeError):
-    """OpenAlex failed for a reason other than the budget."""
-
-
-class BudgetExhausted(RuntimeError):
-    def __init__(self, reset_at: datetime) -> None:
-        super().__init__(f"OpenAlex daily budget exhausted until {reset_at.isoformat()}")
-        self.reset_at = reset_at
-
-
-@dataclass
-class Work:
-    openalex_id: str
-    doi: str | None
-    title: str
-    year: int | None
-    authors: list[str]
-    venue: str | None
-    oa_url: str | None
-    referenced_works: list[str]
-    fwci: float | None = None
-    abstract: str | None = None
 
 
 def normalize_doi(value: str | None) -> str | None:
@@ -92,7 +70,7 @@ def _work(data: dict[str, Any]) -> Work:
     best = data.get("best_oa_location") or {}
     open_access = data.get("open_access") or {}
     return Work(
-        openalex_id=short_id(str(data.get("id", ""))),
+        id=short_id(str(data.get("id", ""))),
         doi=normalize_doi(data.get("doi")),
         title=str(data.get("title") or ""),
         year=data.get("publication_year"),
@@ -106,6 +84,7 @@ def _work(data: dict[str, Any]) -> Work:
         referenced_works=[short_id(w) for w in data.get("referenced_works") or []],
         fwci=data.get("fwci"),
         abstract=_abstract(data.get("abstract_inverted_index")),
+        cited_by_count=data.get("cited_by_count"),
     )
 
 
@@ -163,7 +142,7 @@ def _get(path: str, params: dict[str, str]) -> dict[str, Any] | None:
 def _cache(data: dict[str, Any]) -> Work:
     work = _work(data)
     body = json.dumps(data)
-    entries = {f"openalex:{work.openalex_id}": body}
+    entries = {f"openalex:{work.id}": body}
     if work.doi:
         entries[f"doi:{work.doi}"] = body
     research_store.cache_put(entries)
@@ -205,7 +184,7 @@ def works_by_filter(field: str, values: list[str], cache_prefix: str) -> dict[st
         )
         for item in (data or {}).get("results", []):
             work = _cache(item)
-            key = work.openalex_id if cache_prefix == "openalex" else work.doi
+            key = work.id if cache_prefix == "openalex" else work.doi
             if key:
                 found[key] = work
     return found

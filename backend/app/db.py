@@ -25,7 +25,7 @@ from app.models import (
     Topic,
 )
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 _V1_STATEMENTS = (
     """
@@ -126,7 +126,7 @@ def _load_sqlite_vec(conn: sqlite3.Connection) -> None:
 
 
 def migrate(conn: sqlite3.Connection | None = None) -> None:
-    """Apply pending schema versions (1 notes, 2 chunks, 3 space, 4 extract_status, 5 point context, 6 research track, 7 scholarly resolution, 8 Siblings and Ancestors, 9 notes sent from a Paper, 10 Research Track Ask index)."""
+    """Apply pending schema versions (1 notes, 2 chunks, 3 space, 4 extract_status, 5 point context, 6 research track, 7 scholarly resolution, 8 Siblings and Ancestors, 9 notes sent from a Paper, 10 Research Track Ask index, 11 Semantic Scholar ids)."""
     owns_connection = conn is None
     if conn is None:
         conn = get_connection()
@@ -173,6 +173,9 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
         if 10 not in applied:
             _migrate_v10(conn)
             conn.execute("INSERT INTO schema_migrations (version) VALUES (10)")
+        if 11 not in applied:
+            _migrate_v11(conn)
+            conn.execute("INSERT INTO schema_migrations (version) VALUES (11)")
         conn.commit()
     finally:
         if owns_connection:
@@ -180,7 +183,7 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
 
 
 def migrate_down(target_version: int, conn: sqlite3.Connection | None = None) -> None:
-    """Roll schema back to target_version. v10 drops the Research Ask index; v9 drops note → Paper links; v8 drops Siblings and Ancestors; v7 drops scholarly resolution; v6 drops the research track; v5 drops point context; v4 drops extract_status; v3 drops space."""
+    """Roll schema back to target_version. v11 drops Semantic Scholar ids; v10 drops the Research Ask index; v9 drops note → Paper links; v8 drops Siblings and Ancestors; v7 drops scholarly resolution; v6 drops the research track; v5 drops point context; v4 drops extract_status; v3 drops space."""
     if target_version < 2:
         raise ValueError("cannot roll back below schema version 2 (chunks + sqlite-vec)")
     owns_connection = conn is None
@@ -193,6 +196,9 @@ def migrate_down(target_version: int, conn: sqlite3.Connection | None = None) ->
             raise ValueError(
                 f"target version {target_version} is ahead of applied {current}"
             )
+        if 11 in applied and target_version < 11:
+            _downgrade_v11(conn)
+            conn.execute("DELETE FROM schema_migrations WHERE version = 11")
         if 10 in applied and target_version < 10:
             _downgrade_v10(conn)
             conn.execute("DELETE FROM schema_migrations WHERE version = 10")
@@ -552,6 +558,20 @@ def _migrate_v10(conn: sqlite3.Connection) -> None:
 def _downgrade_v10(conn: sqlite3.Connection) -> None:
     conn.execute("DROP TABLE IF EXISTS research_vec")
     conn.execute("DROP TABLE IF EXISTS research_chunks")
+
+
+# Semantic Scholar as a full alternative source: its paperId sits beside the OpenAlex id, so
+# a Study resolved by either source keeps both and identity merges on either.
+def _migrate_v11(conn: sqlite3.Connection) -> None:
+    if "s2_id" not in _column_names(conn, "studies"):
+        conn.execute("ALTER TABLE studies ADD COLUMN s2_id TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS studies_s2 ON studies (s2_id)")
+
+
+def _downgrade_v11(conn: sqlite3.Connection) -> None:
+    conn.execute("DROP INDEX IF EXISTS studies_s2")
+    if "s2_id" in _column_names(conn, "studies"):
+        conn.execute("ALTER TABLE studies DROP COLUMN s2_id")
 
 
 def init_db() -> None:
