@@ -13,12 +13,14 @@ import {
   refreshParents,
   retryResolution,
   retryStudy,
+  sendClaimToBoard,
   setApiEnabled,
   uploadPapers,
   type StudyFilter,
 } from "../../api";
 import type { ColorMode } from "@xyflow/react";
 import type { ApiStatus, Claim, LeadItem, ParentMark, ResearchJob, StudyDetail, StudySummary } from "../../types";
+import { loadBoardCentre } from "../../boardCentre";
 import { ApiPill } from "./ApiPill";
 import { ClaimCard } from "./ClaimCard";
 import { LeadsSection } from "./LeadsSection";
@@ -154,12 +156,29 @@ function byline(study: StudySummary): string {
 
 type ReaderTab = "reading" | "lineage";
 
-export function ResearchView({ colorMode }: { colorMode: ColorMode }) {
+// Open a Paper at one of its Claims (from a board note's Paper chip).
+export type ResearchTarget = { studyId: number; claimId: number | null };
+
+type ResearchViewProps = {
+  colorMode: ColorMode;
+  target: ResearchTarget | null;
+  onOpenNote: (noteId: number) => void;
+};
+
+export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProps) {
   const [tab, setTab] = useState<ReaderTab>("reading");
-  const [filter, setFilter] = useState<StudyFilter>("paper");
+  const [highlightClaimId, setHighlightClaimId] = useState<number | null>(target?.claimId ?? null);
+  const [filter, setFilter] = useState<StudyFilter>(target ? "all" : "paper");
   const [query, setQuery] = useState("");
   const [studies, setStudies] = useState<StudySummary[]>([]);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(target?.studyId ?? null);
+
+  useEffect(() => {
+    if (target === null) return;
+    setSelectedId(target.studyId);
+    setTab("reading");
+    setHighlightClaimId(target.claimId);
+  }, [target]);
   const [detail, setDetail] = useState<StudyDetail | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -297,6 +316,17 @@ export function ResearchView({ colorMode }: { colorMode: ColorMode }) {
       }
     },
     [selectedId],
+  );
+
+  const onSendClaim = useCallback(
+    async (claimId: number) => {
+      try {
+        setDetail(await sendClaimToBoard(claimId, loadBoardCentre()));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [],
   );
 
   const onDismissLead = useCallback(
@@ -533,6 +563,9 @@ export function ResearchView({ colorMode }: { colorMode: ColorMode }) {
                   onEdit={onEditClaim}
                   onDelete={onDeleteClaim}
                   onAddLimitation={onAddLimitation}
+                  onSend={onSendClaim}
+                  onOpenNote={onOpenNote}
+                  highlightClaimId={highlightClaimId}
                 />
               )}
               {detail.state === "paper" && (
@@ -615,6 +648,9 @@ type PaperExtractionProps = {
   onEdit: (id: number, text: string) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
   onAddLimitation: (text: string) => Promise<void>;
+  onSend: (id: number) => Promise<void>;
+  onOpenNote: (noteId: number) => void;
+  highlightClaimId: number | null;
 };
 
 const FIELDS: { key: "research_question" | "method" | "key_results" | "scope"; label: string }[] = [
@@ -624,7 +660,15 @@ const FIELDS: { key: "research_question" | "method" | "key_results" | "scope"; l
   { key: "scope", label: "Scope" },
 ];
 
-function PaperExtraction({ detail, onEdit, onDelete, onAddLimitation }: PaperExtractionProps) {
+function PaperExtraction({
+  detail,
+  onEdit,
+  onDelete,
+  onAddLimitation,
+  onSend,
+  onOpenNote,
+  highlightClaimId,
+}: PaperExtractionProps) {
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
   const fieldsState = sectionState(detail.job, "extract");
@@ -645,7 +689,15 @@ function PaperExtraction({ detail, onEdit, onDelete, onAddLimitation }: PaperExt
     return (
       <ul className="research-claims">
         {claims.map((claim) => (
-          <ClaimCard key={claim.id} claim={claim} onEdit={onEdit} onDelete={onDelete} />
+          <ClaimCard
+            key={claim.id}
+            claim={claim}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            onSend={onSend}
+            onOpenNote={onOpenNote}
+            highlighted={claim.id === highlightClaimId}
+          />
         ))}
       </ul>
     );

@@ -25,7 +25,7 @@ from app.models import (
     Topic,
 )
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 _V1_STATEMENTS = (
     """
@@ -126,7 +126,7 @@ def _load_sqlite_vec(conn: sqlite3.Connection) -> None:
 
 
 def migrate(conn: sqlite3.Connection | None = None) -> None:
-    """Apply pending schema versions (1 notes, 2 chunks, 3 space, 4 extract_status, 5 point context, 6 research track, 7 scholarly resolution, 8 Siblings and Ancestors)."""
+    """Apply pending schema versions (1 notes, 2 chunks, 3 space, 4 extract_status, 5 point context, 6 research track, 7 scholarly resolution, 8 Siblings and Ancestors, 9 notes sent from a Paper)."""
     owns_connection = conn is None
     if conn is None:
         conn = get_connection()
@@ -167,6 +167,9 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
         if 8 not in applied:
             _migrate_v8(conn)
             conn.execute("INSERT INTO schema_migrations (version) VALUES (8)")
+        if 9 not in applied:
+            _migrate_v9(conn)
+            conn.execute("INSERT INTO schema_migrations (version) VALUES (9)")
         conn.commit()
     finally:
         if owns_connection:
@@ -174,7 +177,7 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
 
 
 def migrate_down(target_version: int, conn: sqlite3.Connection | None = None) -> None:
-    """Roll schema back to target_version. v8 drops Siblings and Ancestors; v7 drops scholarly resolution; v6 drops the research track; v5 drops point context; v4 drops extract_status; v3 drops space."""
+    """Roll schema back to target_version. v9 drops note → Paper links; v8 drops Siblings and Ancestors; v7 drops scholarly resolution; v6 drops the research track; v5 drops point context; v4 drops extract_status; v3 drops space."""
     if target_version < 2:
         raise ValueError("cannot roll back below schema version 2 (chunks + sqlite-vec)")
     owns_connection = conn is None
@@ -187,6 +190,9 @@ def migrate_down(target_version: int, conn: sqlite3.Connection | None = None) ->
             raise ValueError(
                 f"target version {target_version} is ahead of applied {current}"
             )
+        if 9 in applied and target_version < 9:
+            _downgrade_v9(conn)
+            conn.execute("DELETE FROM schema_migrations WHERE version = 9")
         if 8 in applied and target_version < 8:
             _downgrade_v8(conn)
             conn.execute("DELETE FROM schema_migrations WHERE version = 8")
@@ -488,6 +494,29 @@ def _downgrade_v8(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE studies DROP COLUMN {name}")
 
 
+# Send to board: a note made from a Claim remembers its Paper and Claim (a snapshot, not a sync).
+_V9_NOTE_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("study_id", "INTEGER REFERENCES studies(id) ON DELETE SET NULL"),
+    ("claim_id", "INTEGER REFERENCES claims(id) ON DELETE SET NULL"),
+)
+
+
+def _migrate_v9(conn: sqlite3.Connection) -> None:
+    existing = _column_names(conn, "notes")
+    for name, declaration in _V9_NOTE_COLUMNS:
+        if name not in existing:
+            conn.execute(f"ALTER TABLE notes ADD COLUMN {name} {declaration}")
+    conn.execute("CREATE INDEX IF NOT EXISTS notes_study ON notes (study_id)")
+
+
+def _downgrade_v9(conn: sqlite3.Connection) -> None:
+    conn.execute("DROP INDEX IF EXISTS notes_study")
+    existing = _column_names(conn, "notes")
+    for name, _declaration in reversed(_V9_NOTE_COLUMNS):
+        if name in existing:
+            conn.execute(f"ALTER TABLE notes DROP COLUMN {name}")
+
+
 def init_db() -> None:
     migrate()
 
@@ -528,7 +557,8 @@ def list_notes() -> list[NoteSummary]:
         rows = conn.execute(
             """
             SELECT id, title, source, created_at, x, y, z, color, kind, pinned,
-                   extract_status
+                   extract_status, study_id, claim_id,
+                   (SELECT title FROM studies WHERE studies.id = notes.study_id) AS study_title
             FROM notes
             ORDER BY datetime(created_at) DESC, id DESC
             """
@@ -576,7 +606,8 @@ def get_note(note_id: int) -> NoteDetail | None:
         note_row = conn.execute(
             """
             SELECT id, title, source, raw_text, created_at,
-                   x, y, z, color, kind, pinned, ink_json, extract_status
+                   x, y, z, color, kind, pinned, ink_json, extract_status, study_id, claim_id,
+                   (SELECT title FROM studies WHERE studies.id = notes.study_id) AS study_title
             FROM notes
             WHERE id = ?
             """,
@@ -605,6 +636,9 @@ def _summary_fields(row: sqlite3.Row) -> dict[str, object]:
         "kind": row["kind"] or "typed",
         "pinned": bool(row["pinned"]),
         "extract_status": row["extract_status"] or "idle",
+        "study_id": row["study_id"],
+        "claim_id": row["claim_id"],
+        "study_title": row["study_title"],
     }
 
 

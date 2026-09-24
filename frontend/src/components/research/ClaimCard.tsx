@@ -1,13 +1,18 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Claim } from "../../types";
 
 type ClaimCardProps = {
   claim: Claim;
   onEdit: (id: number, text: string) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
+  onSend: (id: number) => Promise<void>;
+  onOpenNote: (noteId: number) => void;
+  highlighted: boolean;
 };
 
-export function ClaimCard({ claim, onEdit, onDelete }: ClaimCardProps) {
+export function ClaimCard({ claim, onEdit, onDelete, onSend, onOpenNote, highlighted }: ClaimCardProps) {
+  const cardRef = useRef<HTMLLIElement>(null);
+  const [sending, setSending] = useState(false);
   const [showQuote, setShowQuote] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(claim.text);
@@ -29,8 +34,24 @@ export function ClaimCard({ claim, onEdit, onDelete }: ClaimCardProps) {
     }
   }
 
+  useEffect(() => {
+    if (highlighted) cardRef.current?.scrollIntoView({ block: "center" });
+  }, [highlighted]);
+
+  async function send(): Promise<void> {
+    setSending(true);
+    try {
+      await onSend(claim.id);
+    } finally {
+      setSending(false);
+    }
+  }
+
   return (
-    <li className={`research-claim research-claim-${claim.author}`}>
+    <li
+      ref={cardRef}
+      className={`research-claim research-claim-${claim.author} ${highlighted ? "research-claim-highlight" : ""}`}
+    >
       {editing ? (
         <div className="research-claim-edit">
           <textarea
@@ -65,6 +86,16 @@ export function ClaimCard({ claim, onEdit, onDelete }: ClaimCardProps) {
               edited
             </span>
           )}
+          {claim.sent_note_id !== null && (
+            <button
+              type="button"
+              className="research-badge research-badge-board"
+              onClick={() => onOpenNote(claim.sent_note_id as number)}
+              title="Show this note on the board"
+            >
+              on board ↗
+            </button>
+          )}
           {claim.stale && (
             <span className="research-badge research-badge-muted" title="Not found in the latest extraction">
               not in latest extraction
@@ -77,6 +108,11 @@ export function ClaimCard({ claim, onEdit, onDelete }: ClaimCardProps) {
           {claim.quote && (
             <button type="button" className="research-link-btn" onClick={() => setShowQuote(!showQuote)}>
               {showQuote ? "hide quote" : "quote"}
+            </button>
+          )}
+          {claim.sent_note_id === null && (
+            <button type="button" className="research-link-btn" disabled={sending} onClick={() => void send()}>
+              → send to board
             </button>
           )}
           <button

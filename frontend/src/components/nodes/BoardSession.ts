@@ -10,6 +10,7 @@ export type BoardSession = {
   acceptPointContext: (noteId: number, pointId: number) => void;
   dismissPointContext: (noteId: number, pointId: number) => void;
   savePointContext: (noteId: number, pointId: number, context: string) => void;
+  openStudy: (studyId: number, claimId: number | null) => void;
 };
 
 export const BoardSessionContext = createContext<BoardSession | null>(null);

@@ -1273,3 +1273,33 @@ textarea {
   font-weight: 600;
   margin: 2px 0;
 }
+
+.research-claim-highlight {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.research-badge-board {
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.7rem;
+  background: none;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.board-paper-chip {
+  display: inline-block;
+  max-width: 100%;
+  margin: 0 0 0.3rem;
+  padding: 1px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: inherit;
+  font-size: 0.72rem;
+  color: var(--accent);
+  background: none;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  cursor: pointer;
+}

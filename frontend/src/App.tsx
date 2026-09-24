@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchHealth, fetchLlmPing } from "./api";
 import { BoardView } from "./components/BoardView";
-import { ResearchView } from "./components/research/ResearchView";
+import { ResearchView, type ResearchTarget } from "./components/research/ResearchView";
 import { StatusPills } from "./components/StatusPills";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { useTheme } from "./hooks/useTheme";
@@ -19,6 +19,9 @@ export default function App() {
   const [model, setModel] = useState<PillState>("loading");
   const [modelName, setModelName] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<Workspace>(readWorkspace);
+  // Cross-links between a sent Claim and its board note; read once when the workspace mounts.
+  const [researchTarget, setResearchTarget] = useState<ResearchTarget | null>(null);
+  const [boardFocus, setBoardFocus] = useState<number | null>(null);
 
   function switchWorkspace(next: Workspace): void {
     const url = new URL(window.location.href);
@@ -26,6 +29,16 @@ export default function App() {
     else url.searchParams.delete("view");
     window.history.replaceState(null, "", url);
     setWorkspace(next);
+  }
+
+  function openStudy(studyId: number, claimId: number | null): void {
+    setResearchTarget({ studyId, claimId });
+    switchWorkspace("research");
+  }
+
+  function openNote(noteId: number): void {
+    setBoardFocus(noteId);
+    switchWorkspace("board");
   }
 
   useEffect(() => {
@@ -86,7 +99,11 @@ export default function App() {
           <StatusPills backend={backend} model={model} modelName={modelName} />
         </div>
       </header>
-      {workspace === "research" ? <ResearchView colorMode={resolved} /> : <BoardView colorMode={resolved} />}
+      {workspace === "research" ? (
+        <ResearchView colorMode={resolved} target={researchTarget} onOpenNote={openNote} />
+      ) : (
+        <BoardView colorMode={resolved} focusNoteId={boardFocus} onOpenStudy={openStudy} />
+      )}
     </div>
   );
 }
