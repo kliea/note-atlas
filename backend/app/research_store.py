@@ -10,6 +10,7 @@ from pathlib import Path
 from app.db import get_connection, resolve_db_path
 from app.models import (
     Claim,
+    ParentItem,
     PossibleMatch,
     ReferenceItem,
     ResearchJob,
@@ -17,6 +18,7 @@ from app.models import (
     StudySummary,
 )
 from app.paper_extract import normalize
+from app.paper_parents import PARENT_THRESHOLD
 from app.tei import ParsedPaper
 
 PARSER_GROBID = "grobid-0.9.1-crf"
@@ -360,6 +362,41 @@ def _possible_match(conn: sqlite3.Connection, match_id: int | None) -> PossibleM
     )
 
 
+def _parents(conn: sqlite3.Connection, paper_id: int) -> list[ParentItem]:
+    """Every Reference the model scored or the user marked: Parents first, then by score."""
+    rows = conn.execute(
+        """
+        SELECT s.id, s.state, s.title, s.year, s.doi, s.arxiv_id, s.oa_url,
+               c.mention_count, c.parent_score, c.parent_reason, c.parent_mark
+        FROM cites c JOIN studies s ON s.id = c.to_study_id
+        WHERE c.from_study_id = ? AND (c.parent_score IS NOT NULL OR c.parent_mark IS NOT NULL)
+        """,
+        (paper_id,),
+    ).fetchall()
+    items = []
+    for row in rows:
+        mark, score = row["parent_mark"], row["parent_score"]
+        is_parent = mark == "pinned" or (mark is None and score is not None and score >= PARENT_THRESHOLD)
+        items.append(
+            ParentItem(
+                study_id=int(row["id"]),
+                state=row["state"],
+                title=row["title"],
+                year=row["year"],
+                doi=row["doi"],
+                arxiv_id=row["arxiv_id"],
+                oa_url=row["oa_url"],
+                mention_count=int(row["mention_count"]),
+                score=score,
+                reason=row["parent_reason"],
+                mark=mark,
+                is_parent=is_parent,
+            )
+        )
+    items.sort(key=lambda p: (not p.is_parent, p.mark != "pinned", -(p.score or 0), p.study_id))
+    return items
+
+
 def count_waiting_for_budget() -> int:
     conn = get_connection()
     try:
@@ -416,6 +453,7 @@ def get_study(study_id: int) -> StudyDetail | None:
                 "resolve_error": row["resolve_error"],
                 "possible_match": _possible_match(conn, row["possible_match_id"]),
                 "claims": _claims(conn, study_id),
+                "parents": _parents(conn, study_id),
                 "references": references,
             }
         )
@@ -776,6 +814,34 @@ def find_same_study(
         conn.close()
 
 
+def _fold_edge(conn: sqlite3.Connection, *, into: int, absorbed: int) -> None:
+    """Two edges became one: keep the higher mention count and Parent score, and the user's mark."""
+    a = conn.execute(
+        "SELECT mention_count, parent_score, parent_reason, parent_mark FROM cites WHERE id = ?",
+        (absorbed,),
+    ).fetchone()
+    b = conn.execute("SELECT parent_score, parent_mark FROM cites WHERE id = ?", (into,)).fetchone()
+    take_score = a["parent_score"] is not None and (
+        b["parent_score"] is None or a["parent_score"] > b["parent_score"]
+    )
+    conn.execute(
+        """
+        UPDATE cites SET mention_count = MAX(mention_count, ?),
+               parent_score = CASE WHEN ? THEN ? ELSE parent_score END,
+               parent_reason = CASE WHEN ? THEN ? ELSE parent_reason END,
+               parent_mark = COALESCE(parent_mark, ?)
+        WHERE id = ?
+        """,
+        (
+            int(a["mention_count"]),
+            take_score, a["parent_score"],
+            take_score, a["parent_reason"],
+            a["parent_mark"],
+            into,
+        ),
+    )
+
+
 def merge_studies(survivor_id: int, absorbed_id: int) -> None:
     """Fold a Lead into another Study: every cites edge moves to the survivor (ADR 0001)."""
     conn = get_connection()
@@ -785,7 +851,7 @@ def merge_studies(survivor_id: int, absorbed_id: int) -> None:
             return
         for column, other in (("to_study_id", "from_study_id"), ("from_study_id", "to_study_id")):
             rows = conn.execute(
-                f"SELECT id, {other} AS other, mention_count FROM cites WHERE {column} = ?",
+                f"SELECT id, {other} AS other FROM cites WHERE {column} = ?",
                 (absorbed_id,),
             ).fetchall()
             for row in rows:
@@ -797,10 +863,7 @@ def merge_studies(survivor_id: int, absorbed_id: int) -> None:
                     (survivor_id, int(row["other"])),
                 ).fetchone()
                 if duplicate is not None:
-                    conn.execute(
-                        "UPDATE cites SET mention_count = MAX(mention_count, ?) WHERE id = ?",
-                        (int(row["mention_count"]), int(duplicate["id"])),
-                    )
+                    _fold_edge(conn, into=int(duplicate["id"]), absorbed=int(row["id"]))
                     conn.execute("DELETE FROM cites WHERE id = ?", (int(row["id"]),))
                 else:
                     conn.execute(
@@ -884,5 +947,81 @@ def study_row(study_id: int) -> sqlite3.Row | None:
     conn = get_connection()
     try:
         return conn.execute("SELECT * FROM studies WHERE id = ?", (study_id,)).fetchone()
+    finally:
+        conn.close()
+
+
+# --- Parent Papers -----------------------------------------------------------------
+
+
+def reference_candidates(paper_id: int) -> list[sqlite3.Row]:
+    conn = get_connection()
+    try:
+        return conn.execute(
+            """
+            SELECT s.id, s.title, s.year, s.doi, c.mention_count, c.contexts_json
+            FROM cites c JOIN studies s ON s.id = c.to_study_id
+            WHERE c.from_study_id = ?
+            ORDER BY c.order_idx
+            """,
+            (paper_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+
+def apply_parent_judgements(paper_id: int, judgements: dict[int, tuple[float, str]]) -> None:
+    """Replace the model's Parent scores for this Paper. The user's marks are never touched."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE cites SET parent_score = NULL, parent_reason = NULL WHERE from_study_id = ?",
+            (paper_id,),
+        )
+        conn.executemany(
+            """
+            UPDATE cites SET parent_score = ?, parent_reason = ?
+            WHERE from_study_id = ? AND to_study_id = ?
+            """,
+            [(score, reason, paper_id, study_id) for study_id, (score, reason) in judgements.items()],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_parent_mark(paper_id: int, study_id: int, mark: str | None) -> bool:
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "UPDATE cites SET parent_mark = ? WHERE from_study_id = ? AND to_study_id = ?",
+            (mark, paper_id, study_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def queue_step(study_id: int, step: str) -> bool:
+    """Queue a job that re-runs the pipeline from `step`, unless one is already open."""
+    now = _now()
+    conn = get_connection()
+    try:
+        busy = conn.execute(
+            "SELECT 1 FROM research_jobs WHERE study_id = ? AND status IN ('queued', 'running')",
+            (study_id,),
+        ).fetchone()
+        if busy is not None:
+            return False
+        conn.execute(
+            """
+            INSERT INTO research_jobs (study_id, status, step, created_at, updated_at)
+            VALUES (?, 'queued', ?, ?, ?)
+            """,
+            (study_id, step, now, now),
+        )
+        conn.commit()
+        return True
     finally:
         conn.close()

@@ -16,7 +16,9 @@ from io import BytesIO
 
 from pypdf import PdfReader
 
-from app import grobid, openalex, paper_extract, research_store, scholarly
+import json
+
+from app import grobid, openalex, paper_extract, paper_parents, research_store, s2, scholarly
 from app.config import ollama_model
 from app.tei import body_text, full_text, parse_tei
 
@@ -95,10 +97,47 @@ def _step_limitations(study_id: int) -> None:
     research_store.mark_extracted(study_id, ollama_model())
 
 
+def _paper_sections(study_id: int) -> list[tuple[str, str]]:
+    tei_file = research_store.pdf_path(study_id).with_suffix(".tei.xml")
+    if not tei_file.exists():
+        return []
+    return [(s.head, s.text) for s in parse_tei(tei_file.read_text(encoding="utf-8")).sections]
+
+
+def _step_parents(study_id: int) -> None:
+    """Score how much the Paper builds on each Reference; the best become its Parent Papers."""
+    title, abstract, body, _ = _paper_text(study_id)
+    study = research_store.get_study(study_id)
+    signals = s2.reference_signals(study.doi if study else None)
+    candidates = []
+    for row in research_store.reference_candidates(study_id):
+        signal = signals.get(f"doi:{openalex.normalize_doi(row['doi'])}") if row["doi"] else None
+        signal = signal or signals.get(f"title:{paper_extract.normalize(row['title'])}")
+        influential, intents = signal if signal else (False, [])
+        candidates.append(
+            paper_parents.Candidate(
+                study_id=int(row["id"]),
+                title=row["title"],
+                year=row["year"],
+                mention_count=int(row["mention_count"]),
+                contexts=json.loads(row["contexts_json"] or "[]"),
+                influential=influential,
+                intents=intents,
+            )
+        )
+    judgements = paper_parents.choose_parents(
+        title, abstract, candidates, _paper_sections(study_id), body
+    )
+    research_store.apply_parent_judgements(
+        study_id, {sid: (j.score, j.reason) for sid, j in judgements.items()}
+    )
+
+
 STEPS: tuple[tuple[str, Callable[[int], None]], ...] = (
     ("parse", _step_parse),
     ("extract", _step_extract),
     ("limitations", _step_limitations),
+    ("parents", _step_parents),
 )
 FIRST_STEP = STEPS[0][0]
 

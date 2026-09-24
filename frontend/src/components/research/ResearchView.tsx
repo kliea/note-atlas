@@ -7,15 +7,18 @@ import {
   fetchApiStatus,
   fetchStudies,
   fetchStudy,
+  markParent,
+  refreshParents,
   retryResolution,
   retryStudy,
   setApiEnabled,
   uploadPapers,
   type StudyFilter,
 } from "../../api";
-import type { ApiStatus, Claim, ResearchJob, StudyDetail, StudySummary } from "../../types";
+import type { ApiStatus, Claim, ParentMark, ResearchJob, StudyDetail, StudySummary } from "../../types";
 import { ApiPill } from "./ApiPill";
 import { ClaimCard } from "./ClaimCard";
+import { ParentsSection } from "./ParentsSection";
 import { UploadDialog } from "./UploadDialog";
 
 const POLL_MS = 1200;
@@ -25,9 +28,10 @@ const STEP_LABELS: Record<string, string> = {
   parse: "reading PDF…",
   extract: "extracting…",
   limitations: "checking limitations…",
+  parents: "finding Parents…",
 };
 // Job steps in pipeline order; each reader section fills in when its step is done.
-const PIPELINE = ["parse", "extract", "limitations"];
+const PIPELINE = ["parse", "extract", "limitations", "parents"];
 
 type SectionState = "waiting" | "working" | "done" | "failed";
 
@@ -270,6 +274,28 @@ export function ResearchView() {
     setDetail(await retryResolution(selectedId));
   }, [selectedId]);
 
+  const onMarkParent = useCallback(
+    async (studyId: number, mark: ParentMark | null) => {
+      if (selectedId === null) return;
+      try {
+        setDetail(await markParent(selectedId, studyId, mark));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [selectedId],
+  );
+
+  const onRefreshParents = useCallback(async () => {
+    if (selectedId === null) return;
+    try {
+      setDetail(await refreshParents(selectedId));
+      await loadStudies();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [selectedId, loadStudies]);
+
   const onEditClaim = useCallback(
     async (id: number, text: string) => {
       await editClaim(id, text);
@@ -451,6 +477,30 @@ export function ResearchView() {
                 onDelete={onDeleteClaim}
                 onAddLimitation={onAddLimitation}
               />
+            )}
+            {detail.state === "paper" && (
+              <>
+                <SectionHeading title="Parent Papers" state={sectionState(detail.job, "parents")}>
+                  {sectionState(detail.job, "parents") === "done" && (
+                    <button
+                      type="button"
+                      className="research-link-btn research-heading-action"
+                      onClick={() => void onRefreshParents()}
+                      title="Re-run Parent selection. Your marks are kept."
+                    >
+                      refresh
+                    </button>
+                  )}
+                </SectionHeading>
+                {sectionState(detail.job, "parents") === "done" && (
+                  <ParentsSection
+                    parents={detail.parents}
+                    onMark={onMarkParent}
+                    onOpen={setSelectedId}
+                    links={(parent) => <StudyLinks study={parent} />}
+                  />
+                )}
+              </>
             )}
             {detail.abstract && (
               <details className="research-abstract">
