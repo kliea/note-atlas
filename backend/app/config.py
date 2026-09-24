@@ -11,9 +11,15 @@ from pathlib import Path
 
 _DEFAULTS: dict[str, str] = {
     "OLLAMA_HOST": "http://127.0.0.1:11434",
-    "OLLAMA_MODEL": "qwen2.5:3b-instruct",
+    "OLLAMA_MODEL": "qwen3:4b",
     "EMBED_MODEL": "all-MiniLM-L6-v2",
     "DB_PATH": "./data/notes.db",
+    "GROBID_URL": "http://127.0.0.1:8070",
+    "GROBID_IMAGE": "grobid/grobid:0.9.1-crf",
+    "GROBID_AUTOSTART": "1",
+    "OPENALEX_API_KEY": "",
+    "S2_API_KEY": "",
+    "CROSSREF_MAILTO": "",
 }
 
 # Repo root is two levels above this file: note-atlas/backend/app/config.py
@@ -60,3 +66,37 @@ def embed_model() -> str:
 def db_path() -> str:
     load_env()
     return os.environ["DB_PATH"]
+
+
+def grobid_url() -> str:
+    load_env()
+    return os.environ["GROBID_URL"].rstrip("/")
+
+
+def grobid_image() -> str:
+    load_env()
+    return os.environ["GROBID_IMAGE"]
+
+
+def grobid_autostart() -> bool:
+    """Start the GROBID container on demand when it is not already reachable."""
+    load_env()
+    return os.environ["GROBID_AUTOSTART"].strip().lower() not in {"0", "false", "no", ""}
+
+
+def openalex_api_key() -> str:
+    """Optional; raises OpenAlex's daily budget from $0.10 to $1."""
+    load_env()
+    return os.environ["OPENALEX_API_KEY"].strip()
+
+
+def s2_api_key() -> str:
+    """Optional; the user's own Semantic Scholar key (never shipped with Atlas)."""
+    load_env()
+    return os.environ["S2_API_KEY"].strip()
+
+
+def crossref_mailto() -> str:
+    """Optional; opts into Crossref's polite pool. Blank by default because it identifies the user."""
+    load_env()
+    return os.environ["CROSSREF_MAILTO"].strip()

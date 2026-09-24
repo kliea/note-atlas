@@ -25,7 +25,7 @@ from app.models import (
     Topic,
 )
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 7
 
 _V1_STATEMENTS = (
     """
@@ -126,7 +126,7 @@ def _load_sqlite_vec(conn: sqlite3.Connection) -> None:
 
 
 def migrate(conn: sqlite3.Connection | None = None) -> None:
-    """Apply pending schema versions (1 notes, 2 chunks, 3 space, 4 extract_status, 5 point context)."""
+    """Apply pending schema versions (1 notes, 2 chunks, 3 space, 4 extract_status, 5 point context, 6 research track, 7 scholarly resolution)."""
     owns_connection = conn is None
     if conn is None:
         conn = get_connection()
@@ -158,6 +158,12 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
         if 5 not in applied:
             _migrate_v5(conn)
             conn.execute("INSERT INTO schema_migrations (version) VALUES (5)")
+        if 6 not in applied:
+            _migrate_v6(conn)
+            conn.execute("INSERT INTO schema_migrations (version) VALUES (6)")
+        if 7 not in applied:
+            _migrate_v7(conn)
+            conn.execute("INSERT INTO schema_migrations (version) VALUES (7)")
         conn.commit()
     finally:
         if owns_connection:
@@ -165,7 +171,7 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
 
 
 def migrate_down(target_version: int, conn: sqlite3.Connection | None = None) -> None:
-    """Roll schema back to target_version. v5 drops point context; v4 drops extract_status; v3 drops space."""
+    """Roll schema back to target_version. v7 drops scholarly resolution; v6 drops the research track; v5 drops point context; v4 drops extract_status; v3 drops space."""
     if target_version < 2:
         raise ValueError("cannot roll back below schema version 2 (chunks + sqlite-vec)")
     owns_connection = conn is None
@@ -178,6 +184,12 @@ def migrate_down(target_version: int, conn: sqlite3.Connection | None = None) ->
             raise ValueError(
                 f"target version {target_version} is ahead of applied {current}"
             )
+        if 7 in applied and target_version < 7:
+            _downgrade_v7(conn)
+            conn.execute("DELETE FROM schema_migrations WHERE version = 7")
+        if 6 in applied and target_version < 6:
+            _downgrade_v6(conn)
+            conn.execute("DELETE FROM schema_migrations WHERE version = 6")
         if 5 in applied and target_version < 5:
             _downgrade_v5(conn)
             conn.execute("DELETE FROM schema_migrations WHERE version = 5")
@@ -264,6 +276,168 @@ def _downgrade_v5(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE points DROP COLUMN context_status")
     if "context" in existing:
         conn.execute("ALTER TABLE points DROP COLUMN context")
+
+
+# Research Track (see docs/specs/research-track.md and docs/adr/0001).
+# A Study is a Lead (no PDF) or a Paper; References are cites edges between Studies.
+_V6_STATEMENTS = (
+    """
+    CREATE TABLE IF NOT EXISTS studies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        state TEXT NOT NULL DEFAULT 'lead' CHECK (state IN ('lead', 'paper')),
+        title TEXT NOT NULL,
+        authors_json TEXT NOT NULL DEFAULT '[]',
+        year INTEGER,
+        venue TEXT,
+        doi TEXT,
+        arxiv_id TEXT,
+        openalex_id TEXT,
+        oa_url TEXT,
+        abstract TEXT,
+        pdf_path TEXT,
+        original_filename TEXT,
+        references_status TEXT,
+        research_question TEXT,
+        method TEXT,
+        key_results TEXT,
+        scope TEXT,
+        extraction_model TEXT,
+        extraction_parser TEXT,
+        extracted_at TEXT,
+        created_at TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS studies_state ON studies (state)",
+    """
+    CREATE TABLE IF NOT EXISTS cites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        from_study_id INTEGER NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+        to_study_id INTEGER NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+        order_idx INTEGER NOT NULL DEFAULT 0,
+        raw_reference TEXT NOT NULL DEFAULT '',
+        mention_count INTEGER NOT NULL DEFAULT 0,
+        contexts_json TEXT NOT NULL DEFAULT '[]',
+        parent_score REAL,
+        parent_reason TEXT,
+        parent_mark TEXT CHECK (parent_mark IN ('pinned', 'unpinned')),
+        CHECK (from_study_id != to_study_id)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS cites_from ON cites (from_study_id)",
+    "CREATE INDEX IF NOT EXISTS cites_to ON cites (to_study_id)",
+    """
+    CREATE TABLE IF NOT EXISTS claims (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        study_id INTEGER NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('contribution', 'limitation')),
+        author TEXT NOT NULL CHECK (author IN ('paper', 'reader')),
+        text TEXT NOT NULL,
+        quote TEXT,
+        order_idx INTEGER NOT NULL DEFAULT 0,
+        edited INTEGER NOT NULL DEFAULT 0,
+        original_text TEXT,
+        stale INTEGER NOT NULL DEFAULT 0,
+        deleted INTEGER NOT NULL DEFAULT 0,
+        sent_note_id INTEGER REFERENCES notes(id) ON DELETE SET NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS claims_study ON claims (study_id)",
+    """
+    CREATE TABLE IF NOT EXISTS lead_dismissals (
+        paper_id INTEGER NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+        study_id INTEGER NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+        PRIMARY KEY (paper_id, study_id)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS research_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        study_id INTEGER NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+        status TEXT NOT NULL DEFAULT 'queued'
+            CHECK (status IN ('queued', 'running', 'done', 'failed')),
+        step TEXT NOT NULL,
+        error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS research_jobs_status ON research_jobs (status)",
+    """
+    CREATE TABLE IF NOT EXISTS research_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    )
+    """,
+)
+
+_V6_TABLES = (
+    "research_settings",
+    "research_jobs",
+    "lead_dismissals",
+    "claims",
+    "cites",
+    "studies",
+)
+
+
+def _migrate_v6(conn: sqlite3.Connection) -> None:
+    for statement in _V6_STATEMENTS:
+        conn.execute(statement)
+
+
+def _downgrade_v6(conn: sqlite3.Connection) -> None:
+    for table in _V6_TABLES:
+        conn.execute(f"DROP TABLE IF EXISTS {table}")
+
+
+# Scholarly resolution: per-Study network status, fuzzy identity suggestions, API response cache.
+_V7_STUDY_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("resolve_status", "TEXT"),
+    ("resolve_error", "TEXT"),
+    ("resolve_after", "TEXT"),
+    ("possible_match_id", "INTEGER REFERENCES studies(id) ON DELETE SET NULL"),
+)
+
+_API_CACHE_TABLE = """
+    CREATE TABLE IF NOT EXISTS api_cache (
+        key TEXT PRIMARY KEY,
+        body TEXT NOT NULL,
+        fetched_at TEXT NOT NULL
+    )
+"""
+
+
+# "Is this the Lead you already have?" answered No: never suggest that pair again.
+_IDENTITY_REJECTIONS_TABLE = """
+    CREATE TABLE IF NOT EXISTS identity_rejections (
+        paper_id INTEGER NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+        study_id INTEGER NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+        PRIMARY KEY (paper_id, study_id)
+    )
+"""
+
+
+def _migrate_v7(conn: sqlite3.Connection) -> None:
+    existing = _column_names(conn, "studies")
+    for name, declaration in _V7_STUDY_COLUMNS:
+        if name not in existing:
+            conn.execute(f"ALTER TABLE studies ADD COLUMN {name} {declaration}")
+    conn.execute("CREATE INDEX IF NOT EXISTS studies_doi ON studies (doi)")
+    conn.execute("CREATE INDEX IF NOT EXISTS studies_openalex ON studies (openalex_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS studies_arxiv ON studies (arxiv_id)")
+    conn.execute(_API_CACHE_TABLE)
+    conn.execute(_IDENTITY_REJECTIONS_TABLE)
+
+
+def _downgrade_v7(conn: sqlite3.Connection) -> None:
+    conn.execute("DROP TABLE IF EXISTS identity_rejections")
+    conn.execute("DROP TABLE IF EXISTS api_cache")
+    for index in ("studies_doi", "studies_openalex", "studies_arxiv"):
+        conn.execute(f"DROP INDEX IF EXISTS {index}")
+    existing = _column_names(conn, "studies")
+    for name, _declaration in reversed(_V7_STUDY_COLUMNS):
+        if name in existing:
+            conn.execute(f"ALTER TABLE studies DROP COLUMN {name}")
 
 
 def init_db() -> None:

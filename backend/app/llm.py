@@ -7,10 +7,12 @@ for llama.cpp without touching routers.
 from __future__ import annotations
 
 import json
+import threading
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
-from typing import Any
+from contextlib import contextmanager
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -18,6 +20,12 @@ from app.config import ollama_host, ollama_model
 
 _PING_TIMEOUT_SECONDS = 3.0
 _GENERATE_TIMEOUT_SECONDS = 180.0
+# Context windows come in a few sizes so Ollama doesn't reload the model for every prompt.
+_CONTEXT_BUCKETS = (4096, 8192, 16384, 32768)
+_REPLY_RESERVE_TOKENS = 1024
+_CHARS_PER_TOKEN = 3  # conservative, so the estimate errs toward a larger window
+
+Priority = Literal["board", "research"]
 
 
 class LlmError(Exception):
@@ -92,23 +100,75 @@ def _model_in_tags(model: str, names: list[str]) -> bool:
     return any(name in variants or name.startswith(f"{model}") for name in names)
 
 
+def context_size(messages: list[dict[str, str]]) -> int:
+    """Smallest bucketed context window that fits the prompt plus a reply."""
+    chars = sum(len(m.get("content", "")) for m in messages)
+    needed = chars // _CHARS_PER_TOKEN + _REPLY_RESERVE_TOKENS
+    for bucket in _CONTEXT_BUCKETS:
+        if needed <= bucket:
+            return bucket
+    raise LlmError(f"prompt too long for the model context (~{needed} tokens)")
+
+
+# Board work (polish, Ask) is interactive, so research calls wait until none is in flight.
+# A research call already running is never interrupted.
+_board_idle = threading.Condition()
+_board_in_flight = 0
+
+
+@contextmanager
+def _priority_slot(priority: Priority) -> Iterator[None]:
+    global _board_in_flight
+    if priority == "research":
+        with _board_idle:
+            _board_idle.wait_for(lambda: _board_in_flight == 0)
+        yield
+        return
+    with _board_idle:
+        _board_in_flight += 1
+    try:
+        yield
+    finally:
+        with _board_idle:
+            _board_in_flight -= 1
+            _board_idle.notify_all()
+
+
+def _base_payload(messages: list[dict[str, str]], *, stream: bool, temperature: float | None) -> dict[str, Any]:
+    options: dict[str, Any] = {"num_ctx": context_size(messages)}
+    if temperature is not None:
+        options["temperature"] = temperature
+    return {
+        "model": ollama_model(),
+        "messages": messages,
+        "stream": stream,
+        # qwen3 (and similar) otherwise spend minutes in a hidden reasoning trace
+        "think": False,
+        "options": options,
+        # Ollama silently drops the start of a prompt that overflows the context;
+        # these make it fail loudly instead (HTTP 400).
+        "truncate": False,
+        "shift": False,
+    }
+
+
 def chat(
     messages: list[dict[str, str]],
     *,
     json_mode: bool = False,
+    schema: dict[str, Any] | None = None,
+    temperature: float | None = None,
+    priority: Priority = "board",
     timeout: float = _GENERATE_TIMEOUT_SECONDS,
 ) -> str:
     """Send a chat completion to Ollama. All generation goes through here."""
     host = ollama_host()
     model = ollama_model()
-    payload: dict[str, Any] = {
-        "model": model,
-        "messages": messages,
-        "stream": False,
-        # qwen3 (and similar) otherwise spend minutes in a hidden reasoning trace
-        "think": False,
-    }
-    if json_mode:
+    payload = _base_payload(messages, stream=False, temperature=temperature)
+    if schema is not None:
+        # Constrains output to this JSON schema.
+        payload["format"] = schema
+    elif json_mode:
         # Forces a JSON object; the model still has to match our schema.
         payload["format"] = "json"
     body = json.dumps(payload).encode("utf-8")
@@ -119,7 +179,7 @@ def chat(
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _priority_slot(priority), urllib.request.urlopen(request, timeout=timeout) as response:
             raw = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         raise LlmError(_http_error(model, exc.code)) from exc
@@ -145,12 +205,7 @@ def chat_stream(
     """Yield assistant text pieces as Ollama streams them."""
     host = ollama_host()
     model = ollama_model()
-    payload: dict[str, Any] = {
-        "model": model,
-        "messages": messages,
-        "stream": True,
-        "think": False,
-    }
+    payload = _base_payload(messages, stream=True, temperature=None)
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
         f"{host}/api/chat",
@@ -162,7 +217,7 @@ def chat_stream(
     held = ""
     released = not hide_think
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _priority_slot("board"), urllib.request.urlopen(request, timeout=timeout) as response:
             for raw_line in response:
                 line = raw_line.decode("utf-8").strip()
                 if not line:

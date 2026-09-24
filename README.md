@@ -43,8 +43,11 @@ Visible focus uses a 2px accent ring (`:focus-visible`). `prefers-reduced-motion
 - Python 3.11+ (3.12 used in development)
 - Node.js 18+ and [pnpm](https://pnpm.io/)
 - [Ollama](https://ollama.com/) running locally
+- [Docker](https://www.docker.com/) for the Research Track's PDF parser (GROBID). Atlas starts the `grobid/grobid:0.9.1-crf` container on `127.0.0.1:8070` when you upload a paper and stops it after the queue has been idle for two minutes. It needs about 4 GB of RAM while running. Without Docker, uploads still work but keep only plain text, with no references.
 
-No cloud APIs, accounts, or telemetry. Keep `OLLAMA_HOST` on loopback.
+No accounts or telemetry, and the board never leaves localhost. Keep `OLLAMA_HOST` on loopback.
+
+The one exception is the Research Track's scholarly lookups. When it's on, the default, Atlas sends paper and reference **titles, DOIs, and OpenAlex ids** (never PDFs, extracted text, or notes) to [OpenAlex](https://openalex.org), and falls back to [Crossref](https://www.crossref.org) for references OpenAlex doesn't link. Switch it off with the status pill in the Research view; year, DOI, and links then come only from the PDF.
 
 ## Environment
 
@@ -59,9 +62,15 @@ cp .env.example .env
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `OLLAMA_HOST` | `http://127.0.0.1:11434` | Local Ollama HTTP API |
-| `OLLAMA_MODEL` | `qwen2.5:3b-instruct` | Chat, extraction, and Ask |
+| `OLLAMA_MODEL` | `qwen3:4b` | Chat, extraction, and Ask |
 | `EMBED_MODEL` | `all-MiniLM-L6-v2` | sentence-transformers model for search/Ask |
-| `DB_PATH` | `./data/notes.db` | SQLite + sqlite-vec file (resolved from this directory) |
+| `DB_PATH` | `./data/notes.db` | SQLite + sqlite-vec file (resolved from this directory); uploaded papers go in `papers/` next to it |
+| `GROBID_URL` | `http://127.0.0.1:8070` | Local GROBID service for parsing papers |
+| `GROBID_IMAGE` | `grobid/grobid:0.9.1-crf` | Image Atlas starts on demand |
+| `GROBID_AUTOSTART` | `1` | Set to `0` to never start the container, e.g. if you run GROBID yourself |
+| `OPENALEX_API_KEY` | _(blank)_ | Optional free key; raises OpenAlex's daily budget from $0.10 to $1. A paper cost about $0.001 in testing, so the keyless budget covers dozens a day |
+| `S2_API_KEY` | _(blank)_ | Optional Semantic Scholar key of your own, for influence signals when ranking Parent Papers |
+| `CROSSREF_MAILTO` | _(blank)_ | Optional email for Crossref's faster "polite" pool; blank by default because it identifies you |
 
 ## Offline run
 
@@ -69,7 +78,7 @@ cp .env.example .env
 
 ```bash
 ollama serve
-ollama pull qwen2.5:3b-instruct
+ollama pull qwen3:4b
 # or: ollama pull qwen3:4b
 ```
 

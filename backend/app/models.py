@@ -1,4 +1,4 @@
-"""Pydantic models for notes, topics, points, and tags."""
+"""Pydantic models for notes, topics, points, tags, and Research Track Studies."""
 
 from __future__ import annotations
 
@@ -231,3 +231,113 @@ class NoteBundle(BaseModel):
 class MarkdownImport(BaseModel):
     format: str = "markdown"
     text: str = Field(min_length=1)
+
+
+# Research Track: a Study is a Lead (no PDF) or a Paper.
+StudyState = Literal["lead", "paper"]
+JobStatus = Literal["queued", "running", "done", "failed"]
+ReferencesStatus = Literal["ok", "unavailable"]
+ResolveStatus = Literal["pending", "running", "done", "waiting_budget", "off", "failed"]
+
+
+class ResearchJob(BaseModel):
+    status: JobStatus
+    step: str
+    error: str | None = None
+    queue_position: int | None = None
+
+
+class StudySummary(BaseModel):
+    id: int
+    state: StudyState
+    title: str
+    authors: list[str] = Field(default_factory=list)
+    year: int | None = None
+    venue: str | None = None
+    doi: str | None = None
+    arxiv_id: str | None = None
+    openalex_id: str | None = None
+    oa_url: str | None = None
+    reference_count: int = 0
+    references_status: ReferencesStatus | None = None
+    resolve_status: ResolveStatus | None = None
+    resolve_after: str | None = None
+    job: ResearchJob | None = None
+    created_at: str
+
+
+class ReferenceItem(BaseModel):
+    study_id: int
+    state: StudyState
+    title: str
+    authors: list[str] = Field(default_factory=list)
+    year: int | None = None
+    doi: str | None = None
+    arxiv_id: str | None = None
+    oa_url: str | None = None
+    raw_reference: str = ""
+    mention_count: int = 0
+
+
+class PossibleMatch(BaseModel):
+    study_id: int
+    title: str
+    year: int | None = None
+    authors: list[str] = Field(default_factory=list)
+
+
+class IdentityDecision(BaseModel):
+    same: bool
+
+
+class ApiStatus(BaseModel):
+    enabled: bool
+    openalex_key: bool
+    s2_key: bool
+    remaining_usd: float | None = None
+    limit_usd: float | None = None
+    reset_at: str | None = None
+    waiting: int = 0
+
+
+class ApiToggle(BaseModel):
+    enabled: bool
+
+
+ClaimKind = Literal["contribution", "limitation"]
+ClaimAuthor = Literal["paper", "reader"]
+
+
+class Claim(BaseModel):
+    id: int
+    kind: ClaimKind
+    author: ClaimAuthor
+    text: str
+    quote: str | None = None
+    edited: bool = False
+    original_text: str | None = None
+    stale: bool = False
+
+
+class ClaimCreate(BaseModel):
+    kind: Literal["limitation"] = "limitation"
+    text: str = Field(min_length=1, max_length=2000)
+
+
+class ClaimPatch(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+
+
+class StudyDetail(StudySummary):
+    abstract: str | None = None
+    original_filename: str | None = None
+    research_question: str | None = None
+    method: str | None = None
+    key_results: str | None = None
+    scope: str | None = None
+    extraction_model: str | None = None
+    extracted_at: str | None = None
+    resolve_error: str | None = None
+    possible_match: PossibleMatch | None = None
+    claims: list[Claim] = Field(default_factory=list)
+    references: list[ReferenceItem] = Field(default_factory=list)

@@ -10,7 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import load_env
 from app.db import init_db
-from app.routers import ask, connections, health, llm, notes, points, search
+from app.research_jobs import resolver as research_resolver
+from app.research_jobs import worker as research_worker
+from app.routers import ask, connections, health, llm, notes, points, research, search
 
 load_env()
 
@@ -24,7 +26,11 @@ _VITE_ORIGINS = (
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     init_db()
+    research_worker.start()
+    research_resolver.start()
     yield
+    research_resolver.stop()
+    research_worker.stop()
 
 
 app = FastAPI(title="Note Atlas", version="0.0.0", lifespan=lifespan)
@@ -43,3 +49,4 @@ app.include_router(points.router)
 app.include_router(connections.router)
 app.include_router(search.router)
 app.include_router(ask.router)
+app.include_router(research.router)
