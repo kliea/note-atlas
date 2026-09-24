@@ -196,3 +196,51 @@ def test_uploading_a_lead_replaces_guessed_ancestors(
     # Its real Parent replaces the Ancestors guessed from its OpenAlex reference list.
     assert _titles(paper["ancestors"]) == [BOOK["title"]]
     assert paper["ancestors"][0]["via"] == [parent["study_id"]]
+
+
+def _sharp_tei(header_id: str) -> str:
+    """Sharp's own PDF: cites only the textbook; its header carries `header_id` in place of a DOI."""
+    start = TEI.index('<biblStruct xml:id="b0">')
+    end = TEI.index("</biblStruct>", start) + len("</biblStruct>")
+    return (
+        (TEI[:start] + TEI[end:])
+        .replace("Lost in the Middle", "Sharp Nearby, Fuzzy Far Away")
+        .replace(f'<idno type="DOI">{PAPER_DOI}</idno>', header_id)
+        .replace('when="2023-07-06"', 'when="2018"')
+    )
+
+
+def test_api_off_upload_of_a_lead_merges_on_its_arxiv_id(
+    client: TestClient, fake: LineageOpenAlex, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client.put("/research/api-status", json={"enabled": False})
+    paper_id = _upload(client)
+    monkeypatch.setattr(paper_parents, "choose_parents", _choose({"Lost": "Sharp", "Sharp": "Speech"}))
+    sharp_id = _upload(client, _sharp_tei('<idno type="arXiv">1805.04623</idno>'))
+
+    paper = client.get(f"/research/studies/{paper_id}").json()
+    [parent] = [p for p in paper["parents"] if p["is_parent"]]
+    assert (parent["study_id"], parent["state"]) == (sharp_id, "paper")  # the Lead became this Paper
+    assert client.get("/research/studies", params={"state": "lead", "q": "Sharp"}).json() == []
+    # Ancestors come through the uploaded Parent, even with the API off.
+    assert _titles(paper["ancestors"]) == ["Speech and Language Processing"]
+    assert fake.requests == []
+
+
+def test_api_off_upload_without_ids_asks_before_merging(
+    client: TestClient, fake: LineageOpenAlex, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client.put("/research/api-status", json={"enabled": False})
+    paper_id = _upload(client)
+    monkeypatch.setattr(paper_parents, "choose_parents", _choose({"Lost": "Sharp", "Sharp": "Speech"}))
+    sharp_id = _upload(client, _sharp_tei(""))
+
+    sharp = client.get(f"/research/studies/{sharp_id}").json()
+    assert sharp["possible_match"]["title"] == "Sharp Nearby, Fuzzy Far Away"
+    client.post(f"/research/studies/{sharp_id}/identity", json={"same": True})
+    _settle()
+
+    paper = client.get(f"/research/studies/{paper_id}").json()
+    [parent] = [p for p in paper["parents"] if p["is_parent"]]
+    assert (parent["study_id"], parent["state"]) == (sharp_id, "paper")
+    assert _titles(paper["ancestors"]) == ["Speech and Language Processing"]

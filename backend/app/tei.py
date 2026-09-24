@@ -46,6 +46,7 @@ class ParsedPaper:
     abstract: str
     sections: list[ParsedSection]
     references: list[ParsedReference]
+    arxiv_id: str | None = None
 
 
 def _text(element: ET.Element | None) -> str:
@@ -135,6 +136,7 @@ def parse_tei(tei: str) -> ParsedPaper:
         authors=[a for a in authors if a],
         year=_year(source.find(".//t:date", _NS)) if source is not None else None,
         doi=_idno(source, "DOI") if source is not None else None,
+        arxiv_id=_idno(source, "arXiv") if source is not None else None,
         abstract=_text(header.find(".//t:abstract", _NS)) if header is not None else "",
         sections=sections,
         references=references,

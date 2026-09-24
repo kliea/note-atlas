@@ -91,7 +91,8 @@ def apply_parse(study_id: int, parsed: ParsedPaper) -> None:
             """
             UPDATE studies
             SET title = COALESCE(NULLIF(?, ''), title),
-                authors_json = ?, year = ?, doi = ?, abstract = NULLIF(?, ''),
+                authors_json = ?, year = ?, doi = ?, arxiv_id = COALESCE(?, arxiv_id),
+                abstract = NULLIF(?, ''),
                 references_status = 'ok', extraction_parser = ?
             WHERE id = ?
             """,
@@ -100,6 +101,7 @@ def apply_parse(study_id: int, parsed: ParsedPaper) -> None:
                 json.dumps(parsed.authors),
                 parsed.year,
                 parsed.doi,
+                parsed.arxiv_id,
                 parsed.abstract,
                 PARSER_GROBID,
                 study_id,
