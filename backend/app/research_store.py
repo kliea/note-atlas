@@ -18,7 +18,6 @@ from app.models import (
     StudyDetail,
     StudySummary,
 )
-from app.paper_extract import normalize
 from app.paper_parents import PARENT_THRESHOLD
 from app.tei import ParsedPaper
 
@@ -460,6 +459,7 @@ def get_study(study_id: int) -> StudyDetail | None:
                 "key_results": row["key_results"],
                 "scope": row["scope"],
                 "extraction_model": row["extraction_model"],
+                "extraction_parser": row["extraction_parser"],
                 "extracted_at": row["extracted_at"],
                 "resolve_error": row["resolve_error"],
                 "possible_match": _possible_match(conn, row["possible_match_id"]),
@@ -537,12 +537,36 @@ def mark_extracted(study_id: int, model: str) -> None:
         conn.close()
 
 
-def replace_paper_claims(study_id: int, kind: str, items: list[tuple[str, str | None]]) -> None:
-    """Replace the paper's untouched Claims of one kind.
+def claims_for_merge(study_id: int, kind: str) -> tuple[list[tuple[int, str]], list[str]]:
+    """What a new extraction run must respect: (edited or sent Claims as (id, original text),
+    tombstones' original texts). Reader Claims are never part of it."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, COALESCE(original_text, text) AS original, deleted FROM claims
+            WHERE study_id = ? AND kind = ? AND author = 'paper'
+              AND (deleted = 1 OR edited = 1 OR sent_note_id IS NOT NULL)
+            ORDER BY order_idx
+            """,
+            (study_id, kind),
+        ).fetchall()
+    finally:
+        conn.close()
+    kept = [(int(r["id"]), str(r["original"])) for r in rows if not r["deleted"]]
+    tombstones = [str(r["original"]) for r in rows if r["deleted"]]
+    return kept, tombstones
 
-    Claims the user edited or sent to the board stay. Claims the user deleted are
-    tombstones: a new Claim with the same text never comes back.
-    """
+
+def apply_claim_merge(
+    study_id: int,
+    kind: str,
+    matched: dict[int, tuple[str, str | None]],
+    stale: list[int],
+    inserts: list[tuple[str, str | None]],
+) -> None:
+    """One transaction: drop untouched paper Claims, refresh matched ones (the user's wording
+    stays), flag unmatched ones stale, and add the rest of the new run."""
     conn = get_connection()
     try:
         conn.execute(
@@ -553,25 +577,24 @@ def replace_paper_claims(study_id: int, kind: str, items: list[tuple[str, str | 
             """,
             (study_id, kind),
         )
-        kept = conn.execute(
-            """
-            SELECT COALESCE(original_text, text) AS text FROM claims
-            WHERE study_id = ? AND kind = ? AND author = 'paper'
-            """,
-            (study_id, kind),
-        ).fetchall()
-        blocked = {normalize(row["text"]) for row in kept}
+        for claim_id, (text, quote) in matched.items():
+            conn.execute(
+                """
+                UPDATE claims
+                SET quote = ?, stale = 0,
+                    original_text = CASE WHEN edited = 1 THEN ? ELSE original_text END
+                WHERE id = ?
+                """,
+                (quote, text, claim_id),
+            )
+        conn.executemany("UPDATE claims SET stale = 1 WHERE id = ?", [(claim_id,) for claim_id in stale])
         order = int(
             conn.execute(
                 "SELECT COALESCE(MAX(order_idx), -1) FROM claims WHERE study_id = ? AND kind = ?",
                 (study_id, kind),
             ).fetchone()[0]
         )
-        for text, quote in items:
-            key = normalize(text)
-            if not key or key in blocked:
-                continue
-            blocked.add(key)
+        for text, quote in inserts:
             order += 1
             conn.execute(
                 """
@@ -581,6 +604,17 @@ def replace_paper_claims(study_id: int, kind: str, items: list[tuple[str, str | 
                 (study_id, kind, text, quote, order),
             )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def extracted_paper_ids() -> list[int]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT id FROM studies WHERE state = 'paper' AND extracted_at IS NOT NULL ORDER BY id"
+        ).fetchall()
+        return [int(r[0]) for r in rows]
     finally:
         conn.close()
 

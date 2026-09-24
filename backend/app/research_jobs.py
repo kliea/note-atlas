@@ -23,6 +23,7 @@ from app import (
     paper_extract,
     paper_leads,
     paper_parents,
+    reextract,
     research_ask,
     research_store,
     s2,
@@ -91,18 +92,14 @@ def _step_extract(study_id: int) -> None:
         key_results=fields.key_results,
         scope=fields.scope,
     )
-    research_store.replace_paper_claims(
-        study_id, "contribution", [(text, None) for text in fields.contributions]
-    )
+    reextract.merge_claims(study_id, "contribution", [(text, None) for text in fields.contributions])
 
 
 def _step_limitations(study_id: int) -> None:
     """The paper's own Limitations, each backed by a verified quote."""
     _, _, body, text = _paper_text(study_id)
     limitations = paper_extract.extract_limitations(body, text)
-    research_store.replace_paper_claims(
-        study_id, "limitation", [(item.text, item.quote) for item in limitations]
-    )
+    reextract.merge_claims(study_id, "limitation", [(item.text, item.quote) for item in limitations])
     research_store.mark_extracted(study_id, ollama_model())
     # The Extraction is complete: make it askable.
     research_ask.reindex_quietly(study_id)

@@ -48,3 +48,20 @@ def _fake_research_ask_embedding(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "app.research_ask.embed_texts", lambda texts: [[1.0] + [0.0] * (EMBEDDING_DIM - 1) for _ in texts]
     )
+
+
+@pytest.fixture(autouse=True)
+def _fake_reextract_embedding(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Claim matching never loads MiniLM in tests: equal texts match, different texts don't."""
+    from app.embed import EMBEDDING_DIM
+    from app.paper_extract import normalize
+
+    def embed(texts: list[str]) -> list[list[float]]:
+        vectors = []
+        for text in texts:
+            vector = [0.0] * EMBEDDING_DIM
+            vector[hash(normalize(text)) % EMBEDDING_DIM] = 1.0
+            vectors.append(vector)
+        return vectors
+
+    monkeypatch.setattr("app.reextract.embed_texts", embed)
