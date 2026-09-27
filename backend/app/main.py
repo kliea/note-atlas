@@ -12,7 +12,7 @@ from app.config import load_env
 from app.db import init_db
 from app.research_jobs import resolver as research_resolver
 from app.research_jobs import worker as research_worker
-from app.routers import ask, connections, health, llm, notes, points, research, search
+from app.routers import ask, connections, files, health, llm, notes, points, research, search
 
 load_env()
 
@@ -50,3 +50,4 @@ app.include_router(connections.router)
 app.include_router(search.router)
 app.include_router(ask.router)
 app.include_router(research.router)
+app.include_router(files.router)
