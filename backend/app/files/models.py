@@ -110,3 +110,34 @@ class IndexStatus(BaseModel):
 
     total_chunks: int
     folders: list[FolderIndexStatus]
+
+
+class RetrievedChunk(BaseModel):
+    """A chunk returned by similarity search, with where it came from."""
+
+    id: str
+    document_id: int
+    folder_id: int
+    filename: str
+    page_start: int
+    chunk_idx: int
+    text: str
+    score: float  # cosine similarity, 1 - distance
+
+
+class AskRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=4000)
+    folder_ids: list[int] | None = None  # None or empty: every folder
+    top_k: int | None = Field(default=None, ge=1, le=20)
+
+
+class FileAsk(BaseModel):
+    """One question and answer in the Files Chat History."""
+
+    id: int
+    question: str
+    answer: str
+    folder_ids: list[int] | None
+    chunks: list[RetrievedChunk]
+    model: str
+    created_at: str

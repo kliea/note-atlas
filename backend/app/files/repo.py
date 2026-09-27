@@ -7,6 +7,7 @@ path relative to files_dir. SQLite holds metadata only; vectors live in ChromaDB
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import shutil
 import sqlite3
@@ -15,7 +16,15 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from app.db import get_connection
 from app.files.config import files_dir
-from app.files.models import FileDocument, FileFolder, FileJob, SkippedUpload, UploadResult
+from app.files.models import (
+    FileAsk,
+    FileDocument,
+    FileFolder,
+    FileJob,
+    RetrievedChunk,
+    SkippedUpload,
+    UploadResult,
+)
 
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 _MAX_STORED_NAME = 120
@@ -415,5 +424,69 @@ def update_job(job_id: int, **fields: object) -> None:
             (*fields.values(), _now(), job_id),
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+# --- Ask history ---------------------------------------------------------------
+# Each row keeps the retrieved chunks' text, so history still shows its sources after the
+# documents are deleted or the index is cleared.
+
+
+def _ask(row: sqlite3.Row) -> FileAsk:
+    folder_ids = json.loads(row["folder_ids_json"])
+    return FileAsk(
+        id=int(row["id"]),
+        question=str(row["question"]),
+        answer=str(row["answer"]),
+        folder_ids=folder_ids or None,
+        chunks=[RetrievedChunk(**chunk) for chunk in json.loads(row["chunk_refs_json"])],
+        model=str(row["model"]),
+        created_at=str(row["created_at"]),
+    )
+
+
+def add_ask(
+    question: str, answer: str, folder_ids: list[int] | None, chunks: list[RetrievedChunk], model: str
+) -> FileAsk:
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            """
+            INSERT INTO file_asks (question, answer, folder_ids_json, chunk_refs_json, model, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                question,
+                answer,
+                json.dumps(folder_ids or []),
+                json.dumps([chunk.model_dump() for chunk in chunks]),
+                model,
+                _now(),
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM file_asks WHERE id = ?", (cursor.lastrowid,)).fetchone()
+    finally:
+        conn.close()
+    return _ask(row)
+
+
+def list_asks(limit: int = 50) -> list[FileAsk]:
+    """Newest first."""
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT * FROM file_asks ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    finally:
+        conn.close()
+    return [_ask(row) for row in rows]
+
+
+def clear_asks() -> int:
+    conn = get_connection()
+    try:
+        cursor = conn.execute("DELETE FROM file_asks")
+        conn.commit()
+        return cursor.rowcount
     finally:
         conn.close()

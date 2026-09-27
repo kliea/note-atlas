@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterator
+
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Response, UploadFile
+from fastapi.responses import StreamingResponse
 
 from app.files import build, repo, service
+from app.files.embed import EmbeddingError
 from app.files.extract import ExtractionError
+from app.llm import LlmError
 from app.files.models import (
+    AskRequest,
     ChunkPreviewResult,
+    FileAsk,
     FileDocument,
     FileFolder,
     FileJob,
@@ -139,3 +147,53 @@ def clear_folder_index(folder_id: int) -> Response:
 def index_status() -> IndexStatus:
     """Knowledge Base Status: stored chunks in total and per folder."""
     return service.index_status()
+
+
+def _sse(event: str, payload: dict[str, object]) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload)}\n\n"
+
+
+@router.post("/ask")
+def ask(body: AskRequest) -> StreamingResponse:
+    """Stream a grounded answer (`token` events), then `done` with the retrieved chunks and the
+    saved history row. An empty scope sends `done` with `empty` set and never calls the model."""
+    question = body.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="question is required")
+
+    def events() -> Iterator[str]:
+        try:
+            plan = service.plan_ask(question, body.folder_ids, body.top_k)
+            chunks = [chunk.model_dump() for chunk in plan.chunks]
+            if plan.empty_message is not None:
+                yield _sse("done", {"empty": plan.empty_message, "chunks": [], "ask": None})
+                return
+            pieces: list[str] = []
+            for token in service.stream_answer(plan):
+                pieces.append(token)
+                yield _sse("token", {"text": token})
+            saved = service.record_ask(plan, "".join(pieces))
+            yield _sse(
+                "done",
+                {"empty": None, "chunks": chunks, "ask": saved.model_dump() if saved else None},
+            )
+        except (EmbeddingError, LlmError) as exc:
+            yield _sse("error", {"detail": str(exc)})
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get("/asks", response_model=list[FileAsk])
+def list_asks(limit: int = Query(default=50, ge=1, le=500)) -> list[FileAsk]:
+    """Chat History, newest first."""
+    return repo.list_asks(limit)
+
+
+@router.delete("/asks", status_code=204)
+def clear_asks() -> Response:
+    repo.clear_asks()
+    return Response(status_code=204)

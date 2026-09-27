@@ -12,6 +12,7 @@ import {
   renameFileFolder,
   uploadFileDocuments,
 } from "../api";
+import { FilesAsk } from "./FilesAsk";
 import { FileTable } from "./FileTable";
 import { FolderList } from "./FolderList";
 import type { FileDocument, FileFolder, FileJob, IndexStatus } from "./types";
@@ -314,6 +315,7 @@ export function FilesView() {
             {error}
           </p>
         )}
+        {folders.length > 0 && <FilesAsk folders={folders} folder={selected} />}
       </section>
     </div>
   );

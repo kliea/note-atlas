@@ -22,6 +22,8 @@ import type {
 } from "./types";
 import type {
   ChunkPreviewResult,
+  FileAsk,
+  FilesAskDone,
   FileDocument,
   FileFolder,
   FileJob,
@@ -502,4 +504,39 @@ export function clearFileIndex(folderId: number): Promise<void> {
 
 export function fetchFilesStatus(): Promise<IndexStatus> {
   return requestJson<IndexStatus>("/files/status");
+}
+
+type FilesAskHandlers = {
+  onToken: (text: string) => void;
+  onDone: (done: FilesAskDone) => void;
+  onError: (detail: string) => void;
+};
+
+// Ask the Files pipeline: one folder, several, or every folder when folderIds is null.
+export async function streamFilesAsk(
+  question: string,
+  folderIds: number[] | null,
+  handlers: FilesAskHandlers,
+  signal?: AbortSignal,
+): Promise<void> {
+  await postSse(
+    "/files/ask",
+    { question, folder_ids: folderIds },
+    (event, raw) => {
+      if (!raw) return;
+      const data = JSON.parse(raw) as Record<string, unknown>;
+      if (event === "token" && typeof data.text === "string") handlers.onToken(data.text);
+      else if (event === "done") handlers.onDone(data as unknown as FilesAskDone);
+      else if (event === "error") handlers.onError(String(data.detail));
+    },
+    signal,
+  );
+}
+
+export function fetchFileAsks(): Promise<FileAsk[]> {
+  return requestJson<FileAsk[]>("/files/asks");
+}
+
+export function clearFileAsks(): Promise<void> {
+  return requestNoContent("/files/asks", { method: "DELETE" });
 }
