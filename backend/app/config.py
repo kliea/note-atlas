@@ -22,6 +22,8 @@ _DEFAULTS: dict[str, str] = {
     "CROSSREF_MAILTO": "",
     # Files pipeline (lab RAG); its settings are read through app.files.config.
     "FILES_DIR": "./data/files",
+    "FILES_CHUNK_SIZE": "500",
+    "FILES_CHUNK_OVERLAP": "0",
 }
 
 # Repo root is two levels above this file: note-atlas/backend/app/config.py

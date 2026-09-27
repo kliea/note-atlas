@@ -200,6 +200,27 @@ def delete_document(document_id: int) -> bool:
     return deleted
 
 
+def set_page_count(document_id: int, page_count: int) -> None:
+    _update_document(document_id, page_count=page_count)
+
+
+def mark_failed(document_id: int, reason: str) -> None:
+    """Record why a document could not be read; it stays failed until it is rebuilt."""
+    _update_document(document_id, status="failed", error=reason[:500])
+
+
+def _update_document(document_id: int, **fields: object) -> None:
+    assignments = ", ".join(f"{name} = ?" for name in fields)
+    conn = get_connection()
+    try:
+        conn.execute(
+            f"UPDATE file_documents SET {assignments} WHERE id = ?", (*fields.values(), document_id)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 # --- uploads -------------------------------------------------------------------
 
 

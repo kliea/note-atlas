@@ -7,3 +7,4 @@ sentence-transformers>=3.0.0
 sqlite-vec>=0.1.6
 python-multipart>=0.0.9
 pypdf>=5.0
+pymupdf>=1.24
