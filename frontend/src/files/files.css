@@ -387,3 +387,8 @@
   padding: 0.3rem 0.5rem;
   font: inherit;
 }
+
+.files-searched {
+  margin-top: -0.2rem;
+  overflow-wrap: anywhere;
+}

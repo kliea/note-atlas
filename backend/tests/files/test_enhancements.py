@@ -257,6 +257,84 @@ def test_memory_includes_the_last_turns_from_the_same_scope(chat: FakeChat, monk
     assert "Use ONLY the context below." in prompt and "must come from the Context" in prompt
 
 
+# --- 5b. Memory-aware retrieval --------------------------------------------------------
+
+CHROMA_DOC = b"ChromaDB persists the collection to the ./chroma_db directory."
+PLAIN_DOC = ("Streamlit draws the page and the sidebar. " * 30).encode()
+
+
+@pytest.fixture
+def topic_vectors(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Texts about the vector database point one way, everything else the other; records queries."""
+    seen: list[str] = []
+
+    def embed(texts: list[str], *, model: str, timeout: float = 0.0) -> list[list[float]]:
+        seen.extend(texts)
+        return [[0.0, 1.0] if ("ChromaDB" in t or "database" in t) else [1.0, 0.0] for t in texts]
+
+    monkeypatch.setattr("app.llm.embed", embed)
+    return seen
+
+
+def test_without_memory_a_follow_up_searches_only_itself(chat: FakeChat, topic_vectors: list[str]) -> None:
+    folder_id = _built("Lab", ("chroma.txt", CHROMA_DOC), ("ui.txt", PLAIN_DOC))
+    chat.reply = ["ChromaDB"]
+    service.ask("Which vector database stores the chunks?", folder_ids=[folder_id], top_k=1)
+    plan, _ = service.ask("What path does it persist to?", folder_ids=[folder_id], top_k=1)
+    assert plan.retrieval_query == "What path does it persist to?"
+    assert [c.filename for c in plan.chunks] == ["ui.txt"]  # the follow-up alone finds the wrong chunk
+
+
+def test_memory_folds_the_previous_turn_into_retrieval(
+    chat: FakeChat, topic_vectors: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FILES_MEMORY_TURNS", "2")
+    folder_id = _built("Lab", ("chroma.txt", CHROMA_DOC), ("ui.txt", PLAIN_DOC))
+    chat.reply = ["ChromaDB"]
+    service.ask("Which vector database stores the chunks?", folder_ids=[folder_id], top_k=1)
+    plan, _ = service.ask("What path does it persist to?", folder_ids=[folder_id], top_k=1)
+
+    assert plan.retrieval_query == (
+        "Which vector database stores the chunks?\nChromaDB\nWhat path does it persist to?"
+    )
+    assert topic_vectors[-1] == plan.retrieval_query  # that is what was embedded
+    assert [c.filename for c in plan.chunks] == ["chroma.txt"]
+    # The model still gets the question exactly as asked.
+    assert "Question:\nWhat path does it persist to?\n" in chat.calls[-1]["prompt"]
+
+
+def test_a_refused_previous_answer_is_left_out_of_the_search() -> None:
+    memory = [("Who won?", answer.REFUSAL)]
+    assert service.retrieval_query("And in 2020?", memory) == "Who won?\nAnd in 2020?"
+
+
+def test_a_long_previous_answer_is_trimmed() -> None:
+    query = service.retrieval_query("Why?", [("What?", "x" * 1000)])
+    assert query == "What?\n" + "x" * 300 + "\nWhy?"
+
+
+def test_memory_retrieval_uses_only_the_most_recent_turn() -> None:
+    memory = [("First?", "One."), ("Second?", "Two.")]
+    assert service.retrieval_query("Third?", memory) == "Second?\nTwo.\nThird?"
+
+
+def test_done_event_reports_the_search_only_when_memory_changed_it(
+    chat: FakeChat, client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json as _json
+
+    folder_id = _built("Lab", ("a.txt", TXT))
+
+    def done_of(question: str) -> dict[str, Any]:
+        body = client.post("/files/ask", json={"question": question, "folder_ids": [folder_id]}).text
+        block = [b for b in body.split("\n\n") if b.startswith("event: done")][0]
+        return _json.loads(block.split("data: ", 1)[1])
+
+    assert done_of("first?")["retrieval_query"] is None
+    monkeypatch.setenv("FILES_MEMORY_TURNS", "1")
+    assert done_of("second?")["retrieval_query"] == "first?\nGrounded answer.\nsecond?"
+
+
 # --- 6. Model picker ----------------------------------------------------------------------
 
 

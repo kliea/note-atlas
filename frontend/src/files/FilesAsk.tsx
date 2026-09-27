@@ -22,6 +22,7 @@ type Current = {
   chunks: RetrievedChunk[];
   sources: string[] | null;
   model: string | null;
+  searched: string | null;
   done: boolean;
   empty: string | null;
   error: string | null;
@@ -99,7 +100,7 @@ export function FilesAsk({ folders, folder, settings }: FilesAskProps) {
     const controller = new AbortController();
     abortRef.current = controller;
     const folderIds = effectiveScope === "folder" && folder ? [folder.id] : null;
-    setCurrent({ question: q, text: "", chunks: [], sources: null, model: null, done: false, empty: null, error: null });
+    setCurrent({ question: q, text: "", chunks: [], sources: null, model: null, searched: null, done: false, empty: null, error: null });
     const update = (patch: (prev: Current) => Current): void =>
       setCurrent((prev) => (prev === null ? prev : patch(prev)));
     try {
@@ -115,6 +116,7 @@ export function FilesAsk({ folders, folder, settings }: FilesAskProps) {
               empty: done.empty,
               sources: done.ask?.sources ?? null,
               model: done.ask?.model ?? null,
+              searched: done.retrieval_query ?? null,
               done: true,
             }));
             const saved = done.ask;
@@ -227,6 +229,11 @@ export function FilesAsk({ folders, folder, settings }: FilesAskProps) {
               <p className="files-muted">
                 Retrieved {current.chunks.length} chunks.{current.model && ` Answered by ${current.model}.`}
               </p>
+              {current.searched && (
+                <p className="files-muted files-searched">
+                  Searched with the previous turn: {current.searched.split("\n").join(" · ")}
+                </p>
+              )}
               {current.chunks.length > 0 && (
                 <>
                   <h4 className="files-subheading">Retrieved Context</h4>

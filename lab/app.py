@@ -193,6 +193,8 @@ if st.button("Ask") and question.strip():
             if sources:
                 st.markdown(f"**Sources:** {'; '.join(sources)}")
             st.caption(f"Retrieved {len(plan.chunks)} chunks.")
+            if plan.retrieval_query != plan.question:
+                st.caption("Searched with the previous turn: " + " · ".join(plan.retrieval_query.splitlines()))
             if plan.model != settings.default_model:
                 st.caption(f"Answered by {plan.model}.")
             st.subheader("Retrieved Context")

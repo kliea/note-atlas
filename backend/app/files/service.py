@@ -159,6 +159,8 @@ class AskPlan:
     empty_message: str | None = None
     model: str = ""
     memory: list[tuple[str, str]] | None = None
+    # What was searched for; differs from `question` only when memory folds in the previous turn.
+    retrieval_query: str = ""
 
     @property
     def calls_model(self) -> bool:
@@ -180,9 +182,34 @@ def plan_ask(
     chosen = model.strip() if model and model.strip() and model_picker_enabled() else llm_model()
     if retrieve.scope_chunk_count(scope) == 0:
         return AskPlan(question=question, folder_ids=scope, chunks=[], empty_message=EMPTY_SCOPE, model=chosen)
-    chunks = retrieve.retrieve_context(question, scope, top_k)
     memory = repo.recent_turns(scope, memory_turns()) or None
-    return AskPlan(question=question, folder_ids=scope, chunks=chunks, model=chosen, memory=memory)
+    query = retrieval_query(question, memory)
+    chunks = retrieve.retrieve_context(query, scope, top_k)
+    return AskPlan(
+        question=question, folder_ids=scope, chunks=chunks, model=chosen, memory=memory, retrieval_query=query
+    )
+
+
+_MEMORY_ANSWER_CHARS = 300
+
+
+def retrieval_query(question: str, memory: list[tuple[str, str]] | None) -> str:
+    """With memory on, search with the previous turn plus the new question.
+
+    A follow-up like "What path does it persist to?" has nothing to match on its own; the
+    previous question and answer ("Which vector database…?" → "ChromaDB") supply what "it" is.
+    The answer is left out when it was the refusal (it names nothing) and is trimmed so a long
+    answer can't drown out the new question. Only retrieval sees this; the model gets the
+    question exactly as asked.
+    """
+    if not memory:
+        return question
+    previous_question, previous_answer = memory[-1]
+    parts = [previous_question]
+    if not answer.is_refusal(previous_answer):
+        parts.append(previous_answer[:_MEMORY_ANSWER_CHARS])
+    parts.append(question)
+    return "\n".join(part.strip() for part in parts if part.strip())
 
 
 def stream_answer(plan: AskPlan) -> Iterator[str]:
