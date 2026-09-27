@@ -8,6 +8,7 @@ import {
   fetchFileDocuments,
   fetchFileFolders,
   fetchFileJob,
+  fetchFilesSettings,
   fetchFilesStatus,
   renameFileFolder,
   uploadFileDocuments,
@@ -15,7 +16,7 @@ import {
 import { FilesAsk } from "./FilesAsk";
 import { FileTable } from "./FileTable";
 import { FolderList } from "./FolderList";
-import type { FileDocument, FileFolder, FileJob, IndexStatus } from "./types";
+import type { FileDocument, FileFolder, FileJob, FilesSettings, IndexStatus } from "./types";
 import "./files.css";
 
 const SELECTED_KEY = "files.selectedFolder";
@@ -53,6 +54,7 @@ export function FilesView() {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<IndexStatus | null>(null);
   const [job, setJob] = useState<FileJob | null>(null);
+  const [settings, setSettings] = useState<FilesSettings | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const selected = folders.find((folder) => folder.id === selectedId) ?? null;
@@ -76,6 +78,12 @@ export function FilesView() {
     setNotice(null);
     setError(null);
   }
+
+  useEffect(() => {
+    void fetchFilesSettings()
+      .then(setSettings)
+      .catch(() => setSettings(null));
+  }, []);
 
   useEffect(() => {
     void loadFolders()
@@ -288,7 +296,7 @@ export function FilesView() {
               <input
                 ref={inputRef}
                 type="file"
-                accept="application/pdf,.pdf,text/plain,.txt"
+                accept={(settings?.accepted ?? [".pdf", ".txt"]).join(",")}
                 multiple
                 hidden
                 onChange={(event) => void upload(Array.from(event.target.files ?? []))}
@@ -297,7 +305,9 @@ export function FilesView() {
             <p className="files-muted" role="status">
               Stored chunks: {status?.total_chunks ?? "…"} · this folder: {selected.chunk_count}
             </p>
-            <p className="files-muted">PDF and .txt files. Drop them anywhere in this panel.</p>
+            <p className="files-muted">
+              {(settings?.accepted ?? [".pdf", ".txt"]).join(", ")} files. Drop them anywhere in this panel.
+            </p>
             {notice && (
               <p className="files-notice" role="status">
                 {notice}
@@ -315,7 +325,7 @@ export function FilesView() {
             {error}
           </p>
         )}
-        {folders.length > 0 && <FilesAsk folders={folders} folder={selected} />}
+        {folders.length > 0 && <FilesAsk folders={folders} folder={selected} settings={settings} />}
       </section>
     </div>
   );

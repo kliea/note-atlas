@@ -49,6 +49,7 @@ export function FileTable({ documents, onDelete, onChanged }: FileTableProps) {
               <tr>
                 <td className="files-filename">
                   {doc.filename}
+                  {doc.encoding && <span className="files-encoding">{doc.encoding}</span>}
                   {doc.status === "failed" && doc.error && <div className="files-row-error">{doc.error}</div>}
                 </td>
                 <td className="num">{formatBytes(doc.size_bytes)}</td>

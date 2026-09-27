@@ -7,6 +7,7 @@ path relative to files_dir. SQLite holds metadata only; vectors live in ChromaDB
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import re
 import shutil
@@ -15,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from app.db import get_connection
-from app.files.config import files_dir
+from app.files.config import docx_enabled, files_dir, txt_fallback_enabled
 from app.files.models import (
     FileAsk,
     FileDocument,
@@ -31,7 +32,12 @@ _MAX_STORED_NAME = 120
 _UNSAFE_CHARS = re.compile(r"[^A-Za-z0-9._-]+")
 
 MIME_PDF = "application/pdf"
-MIME_TEXT = "text/plain"
+# .txt uploads record the encoding they were read with as a charset parameter. Rows from before
+# the encoding fallback say plain "text/plain", which means UTF-8.
+MIME_TEXT = "text/plain; charset=utf-8"
+MIME_TEXT_CP1252 = "text/plain; charset=windows-1252"
+MIME_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+_ZIP_MAGIC = b"PK\x03\x04"
 
 
 class FolderNameTaken(Exception):
@@ -270,8 +276,13 @@ def sanitize_filename(filename: str) -> str:
     return safe[-_MAX_STORED_NAME:] or "file"
 
 
+def accepted_suffixes() -> list[str]:
+    return [".pdf", ".txt", *([".docx"] if docx_enabled() else [])]
+
+
 def classify_upload(filename: str, data: bytes) -> str:
-    """The upload's MIME type: PDF by `%PDF` magic bytes, `.txt` as UTF-8 text."""
+    """The upload's MIME type: PDF by `%PDF` magic bytes, `.txt` as UTF-8 text (or Windows-1252
+    with the fallback on), `.docx` as a Word document that opens (when enabled)."""
     name = display_name(filename)
     if len(data) > MAX_UPLOAD_BYTES:
         raise UploadTooLarge(f"{name} is larger than {MAX_UPLOAD_BYTES // (1024 * 1024)} MB")
@@ -283,12 +294,49 @@ def classify_upload(filename: str, data: bytes) -> str:
             raise UnsupportedFile(f"{name} is not a PDF")
         return MIME_PDF
     if suffix == ".txt":
-        try:
-            data.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise UnsupportedFile(f"{name} is not UTF-8 text") from exc
+        return _classify_text(name, data)
+    if suffix == ".docx" and docx_enabled():
+        return _classify_docx(name, data)
+    allowed = ", ".join(accepted_suffixes())
+    raise UnsupportedFile(f"{name}: only {allowed} files are supported")
+
+
+def _classify_text(name: str, data: bytes) -> str:
+    try:
+        data.decode("utf-8")
         return MIME_TEXT
-    raise UnsupportedFile(f"{name}: only .pdf and .txt files are supported")
+    except UnicodeDecodeError as exc:
+        if not txt_fallback_enabled():
+            raise UnsupportedFile(f"{name} is not UTF-8 text") from exc
+    try:
+        data.decode("cp1252")
+    except UnicodeDecodeError as exc:
+        raise UnsupportedFile(f"{name} is neither UTF-8 nor Windows-1252 text") from exc
+    return MIME_TEXT_CP1252
+
+
+def _classify_docx(name: str, data: bytes) -> str:
+    import docx  # python-docx; imported here so PDF/TXT-only use never loads it
+
+    if not data.startswith(_ZIP_MAGIC):
+        raise UnsupportedFile(f"{name} is not a Word document")
+    try:
+        docx.Document(io.BytesIO(data))
+    except Exception as exc:  # noqa: BLE001 — python-docx raises several types for a bad file
+        raise UnsupportedFile(f"{name} is not a readable Word document") from exc
+    return MIME_DOCX
+
+
+def text_encoding(mime: str) -> str | None:
+    """The charset a text upload is read with ("utf-8" for rows without one); None if not text."""
+    kind, _, params = mime.partition(";")
+    if kind.strip() != "text/plain":
+        return None
+    for param in params.split(";"):
+        key, _, value = param.strip().partition("=")
+        if key.lower() == "charset" and value:
+            return value.strip().lower()
+    return "utf-8"
 
 
 def add_documents(folder_id: int, uploads: list[tuple[str, bytes]]) -> UploadResult:
@@ -480,6 +528,21 @@ def list_asks(limit: int = 50) -> list[FileAsk]:
     finally:
         conn.close()
     return [_ask(row) for row in rows]
+
+
+def recent_turns(folder_ids: list[int] | None, limit: int) -> list[tuple[str, str]]:
+    """The last `limit` (question, answer) pairs asked in exactly this scope, oldest first."""
+    if limit <= 0:
+        return []
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT question, answer FROM file_asks WHERE folder_ids_json = ? ORDER BY id DESC LIMIT ?",
+            (json.dumps(folder_ids or []), limit),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [(str(row["question"]), str(row["answer"])) for row in reversed(rows)]
 
 
 def clear_asks() -> int:

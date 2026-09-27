@@ -30,6 +30,13 @@ _DEFAULTS: dict[str, str] = {
     "FILES_LLM_MODEL": "phi3",
     "FILES_TOP_K": "3",
     "FILES_SCORE_THRESHOLD": "",
+    # Lab enhancement activities (F6), each independently switchable.
+    "FILES_DOCX": "1",
+    "FILES_TXT_FALLBACK": "1",
+    "FILES_SHOW_SOURCES": "1",
+    "FILES_HYBRID": "0",
+    "FILES_MEMORY_TURNS": "0",
+    "FILES_MODEL_PICKER": "1",
 }
 
 # Repo root is two levels above this file: note-atlas/backend/app/config.py

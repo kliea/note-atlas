@@ -8,7 +8,18 @@ from dataclasses import dataclass
 from app.db import init_db
 from app.files import answer, build, repo, retrieve, store
 from app.files.build import Progress, document_chunks
-from app.files.config import chunk_overlap, chunk_size, llm_model, score_threshold
+from app import llm
+from app.files.config import (
+    chunk_overlap,
+    chunk_size,
+    hybrid_enabled,
+    llm_model,
+    memory_turns,
+    model_picker_enabled,
+    score_threshold,
+    show_sources,
+    top_k,
+)
 from app.files.models import (
     BuildSummary,
     ChunkPreview,
@@ -16,8 +27,10 @@ from app.files.models import (
     FileAsk,
     FileDocument,
     FileFolder,
+    FilesSettings,
     FolderIndexStatus,
     IndexStatus,
+    ModelList,
     RetrievedChunk,
     UploadResult,
 )
@@ -144,20 +157,32 @@ class AskPlan:
     folder_ids: list[int] | None
     chunks: list[RetrievedChunk]
     empty_message: str | None = None
+    model: str = ""
+    memory: list[tuple[str, str]] | None = None
 
     @property
     def calls_model(self) -> bool:
         return self.empty_message is None and bool(self.chunks)
 
 
-def plan_ask(question: str, folder_ids: list[int] | None = None, top_k: int | None = None) -> AskPlan:
-    """Retrieve context for the question. Raises EmbeddingError if Ollama can't embed it."""
+def plan_ask(
+    question: str,
+    folder_ids: list[int] | None = None,
+    top_k: int | None = None,
+    model: str | None = None,
+) -> AskPlan:
+    """Retrieve context for the question. Raises EmbeddingError if Ollama can't embed it.
+
+    `model` is honoured only with the model picker on (enhancement 6); otherwise FILES_LLM_MODEL.
+    """
     question = question.strip()
     scope = sorted(set(folder_ids)) if folder_ids else None
+    chosen = model.strip() if model and model.strip() and model_picker_enabled() else llm_model()
     if retrieve.scope_chunk_count(scope) == 0:
-        return AskPlan(question=question, folder_ids=scope, chunks=[], empty_message=EMPTY_SCOPE)
+        return AskPlan(question=question, folder_ids=scope, chunks=[], empty_message=EMPTY_SCOPE, model=chosen)
     chunks = retrieve.retrieve_context(question, scope, top_k)
-    return AskPlan(question=question, folder_ids=scope, chunks=chunks)
+    memory = repo.recent_turns(scope, memory_turns()) or None
+    return AskPlan(question=question, folder_ids=scope, chunks=chunks, model=chosen, memory=memory)
 
 
 def stream_answer(plan: AskPlan) -> Iterator[str]:
@@ -168,22 +193,63 @@ def stream_answer(plan: AskPlan) -> Iterator[str]:
         # Only reachable with FILES_SCORE_THRESHOLD on: nothing cleared the gate.
         yield answer.REFUSAL
         return
-    yield from answer.stream_answer(plan.question, plan.chunks)
+    yield from answer.stream_answer(plan.question, plan.chunks, model=plan.model, memory=plan.memory)
 
 
 def record_ask(plan: AskPlan, text: str) -> FileAsk | None:
     """Write the Chat History row; an empty-scope ask is not recorded."""
     if plan.empty_message is not None:
         return None
-    model = llm_model() if plan.calls_model else f"none (score threshold {score_threshold()})"
+    model = plan.model if plan.calls_model else f"none (score threshold {score_threshold()})"
     return repo.add_ask(plan.question, text.strip(), plan.folder_ids, plan.chunks, model)
 
 
-def ask(question: str, folder_ids: list[int] | None = None, top_k: int | None = None) -> tuple[AskPlan, str]:
+def ask(
+    question: str, folder_ids: list[int] | None = None, top_k: int | None = None, model: str | None = None
+) -> tuple[AskPlan, str]:
     """Plan, answer, and record in one call (the Streamlit app and scripts use this)."""
-    plan = plan_ask(question, folder_ids, top_k)
+    plan = plan_ask(question, folder_ids, top_k, model)
     if plan.empty_message is not None:
         return plan, plan.empty_message
     text = "".join(stream_answer(plan)).strip()
     record_ask(plan, text)
     return plan, text
+
+
+# --- settings and models (lab enhancements) ---------------------------------------
+
+
+def settings() -> FilesSettings:
+    return FilesSettings(
+        accepted=repo.accepted_suffixes(),
+        default_model=llm_model(),
+        top_k=top_k(),
+        show_sources=show_sources(),
+        hybrid=hybrid_enabled(),
+        memory_turns=memory_turns(),
+        model_picker=model_picker_enabled(),
+        score_threshold=score_threshold(),
+    )
+
+
+def available_models() -> ModelList:
+    """Pulled Ollama chat models for the picker (embedding models left out). The default comes
+    first even when Ollama can't be reached, so the picker always has something to show."""
+    default = llm_model()
+    try:
+        pulled = llm.list_models()
+    except llm.LlmError as exc:
+        return ModelList(default=default, models=[default], error=str(exc))
+    names = [
+        m.name
+        for m in pulled
+        if "embed" not in m.name.lower() and not (m.family or "").lower().endswith("bert")
+    ]
+    ordered = sorted(names, key=lambda name: (not _same_model(name, default), name.lower()))
+    if not any(_same_model(name, default) for name in ordered):
+        ordered.insert(0, default)
+    return ModelList(default=default, models=ordered)
+
+
+def _same_model(name: str, model: str) -> bool:
+    return name == model or name == f"{model}:latest"

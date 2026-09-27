@@ -24,10 +24,12 @@ import type {
   ChunkPreviewResult,
   FileAsk,
   FilesAskDone,
+  FilesSettings,
   FileDocument,
   FileFolder,
   FileJob,
   IndexStatus,
+  ModelList,
   UploadResult,
 } from "./files/types";
 
@@ -518,10 +520,11 @@ export async function streamFilesAsk(
   folderIds: number[] | null,
   handlers: FilesAskHandlers,
   signal?: AbortSignal,
+  model?: string | null,
 ): Promise<void> {
   await postSse(
     "/files/ask",
-    { question, folder_ids: folderIds },
+    { question, folder_ids: folderIds, model: model ?? null },
     (event, raw) => {
       if (!raw) return;
       const data = JSON.parse(raw) as Record<string, unknown>;
@@ -539,4 +542,12 @@ export function fetchFileAsks(): Promise<FileAsk[]> {
 
 export function clearFileAsks(): Promise<void> {
   return requestNoContent("/files/asks", { method: "DELETE" });
+}
+
+export function fetchFilesSettings(): Promise<FilesSettings> {
+  return requestJson<FilesSettings>("/files/settings");
+}
+
+export function fetchFilesModels(): Promise<ModelList> {
+  return requestJson<ModelList>("/files/models");
 }
