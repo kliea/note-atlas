@@ -46,6 +46,12 @@ def embed_model() -> str:
     return os.environ["FILES_EMBED_MODEL"]
 
 
+def embed_provider() -> str:
+    """Where Files embeddings come from: "ollama" (the lab) or "sentence-transformers" (comparisons)."""
+    load_env()
+    return os.environ["FILES_EMBED_PROVIDER"].strip().lower()
+
+
 def embed_batch_size() -> int:
     load_env()
     return max(1, int(os.environ["FILES_EMBED_BATCH"]))

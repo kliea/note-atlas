@@ -27,6 +27,9 @@ _DEFAULTS: dict[str, str] = {
     "FILES_CHROMA_PATH": "./data/chroma_files",
     "FILES_EMBED_MODEL": "nomic-embed-text",
     "FILES_EMBED_BATCH": "32",
+    # "ollama" (lab default) or "sentence-transformers" (e.g. FILES_EMBED_MODEL=all-MiniLM-L6-v2).
+    # Changing either needs its own FILES_CHROMA_PATH: vector sizes differ (768 vs 384).
+    "FILES_EMBED_PROVIDER": "ollama",
     "FILES_LLM_MODEL": "phi3",
     "FILES_TOP_K": "3",
     "FILES_SCORE_THRESHOLD": "",
