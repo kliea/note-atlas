@@ -20,6 +20,8 @@ _DEFAULTS: dict[str, str] = {
     "OPENALEX_API_KEY": "",
     "S2_API_KEY": "",
     "CROSSREF_MAILTO": "",
+    # Files pipeline (lab RAG); its settings are read through app.files.config.
+    "FILES_DIR": "./data/files",
 }
 
 # Repo root is two levels above this file: note-atlas/backend/app/config.py

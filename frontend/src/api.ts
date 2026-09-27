@@ -20,6 +20,7 @@ import type {
   StudyDetail,
   StudySummary,
 } from "./types";
+import type { FileDocument, FileFolder, UploadResult } from "./files/types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8888";
 
@@ -426,4 +427,51 @@ export function reextractPaper(paperId: number): Promise<StudyDetail> {
 
 export function reextractAll(): Promise<{ queued: number; busy: number }> {
   return requestJson<{ queued: number; busy: number }>("/research/reextract-all", { method: "POST" });
+}
+
+// --- Files pipeline (lab RAG) ---------------------------------------------------
+
+async function requestNoContent(path: string, init: RequestInit): Promise<void> {
+  const response = await fetch(`${API_BASE}${path}`, init);
+  if (!response.ok) {
+    throw new Error(`${path} failed: ${response.status}`);
+  }
+}
+
+export function fetchFileFolders(): Promise<FileFolder[]> {
+  return requestJson<FileFolder[]>("/files/folders");
+}
+
+export function createFileFolder(name: string): Promise<FileFolder> {
+  return requestJson<FileFolder>("/files/folders", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function renameFileFolder(id: number, name: string): Promise<FileFolder> {
+  return requestJson<FileFolder>(`/files/folders/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function deleteFileFolder(id: number): Promise<void> {
+  return requestNoContent(`/files/folders/${id}`, { method: "DELETE" });
+}
+
+export function fetchFileDocuments(folderId: number): Promise<FileDocument[]> {
+  return requestJson<FileDocument[]>(`/files/folders/${folderId}/documents`);
+}
+
+export function uploadFileDocuments(folderId: number, files: File[]): Promise<UploadResult> {
+  const body = new FormData();
+  for (const file of files) body.append("files", file);
+  return requestJson<UploadResult>(`/files/folders/${folderId}/documents`, { method: "POST", body });
+}
+
+export function deleteFileDocument(id: number): Promise<void> {
+  return requestNoContent(`/files/documents/${id}`, { method: "DELETE" });
 }
