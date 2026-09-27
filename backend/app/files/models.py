@@ -56,3 +56,21 @@ class UploadResult(BaseModel):
 
     added: list[FileDocument]
     skipped: list[SkippedUpload]
+
+
+class ChunkPreview(BaseModel):
+    idx: int
+    text: str
+    page_start: int
+    char_start: int
+
+
+class ChunkPreviewResult(BaseModel):
+    """The document's chunks as the index would store them (no embeddings yet)."""
+
+    document_id: int
+    page_count: int
+    chunk_size: int
+    overlap: int
+    total_chunks: int
+    chunks: list[ChunkPreview]

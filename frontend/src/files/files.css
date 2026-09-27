@@ -208,3 +208,54 @@
     border-bottom: 1px solid var(--line);
   }
 }
+
+.files-actions {
+  display: flex;
+  gap: 0.7rem;
+  justify-content: flex-end;
+}
+
+.files-row-error {
+  margin-top: 0.2rem;
+  color: var(--err-fg);
+  font-size: 0.8rem;
+}
+
+.files-preview-row td {
+  background: var(--panel);
+  padding: 0.6rem 0.8rem 0.9rem;
+}
+
+.files-preview .files-muted {
+  margin: 0 0 0.5rem;
+}
+
+.files-chunks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.files-chunk-meta {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 0.2rem;
+}
+
+.files-chunk-text {
+  margin: 0;
+  padding: 0.5rem 0.6rem;
+  background: var(--input-bg);
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 12rem;
+  overflow: auto;
+}

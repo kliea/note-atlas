@@ -20,3 +20,15 @@ def files_dir() -> Path:
     """Where uploads are stored: <files_dir>/<folder_id>/<document_id>_<filename>."""
     load_env()
     return _repo_path(os.environ["FILES_DIR"])
+
+
+def chunk_size() -> int:
+    """Characters per chunk (the lab uses 500)."""
+    load_env()
+    return int(os.environ["FILES_CHUNK_SIZE"])
+
+
+def chunk_overlap() -> int:
+    """Characters shared by consecutive chunks; 0 is lab-faithful."""
+    load_env()
+    return int(os.environ["FILES_CHUNK_OVERLAP"])

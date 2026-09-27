@@ -216,7 +216,11 @@ export function FilesView() {
                 {notice}
               </p>
             )}
-            <FileTable documents={documents} onDelete={(doc) => void removeDocument(doc)} />
+            <FileTable
+              documents={documents}
+              onDelete={(doc) => void removeDocument(doc)}
+              onChanged={() => void refresh(selected.id).catch((err: unknown) => setError(message(err)))}
+            />
           </>
         )}
         {error && (

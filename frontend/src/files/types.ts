@@ -34,3 +34,19 @@ export type UploadResult = {
   added: FileDocument[];
   skipped: SkippedUpload[];
 };
+
+export type ChunkPreview = {
+  idx: number;
+  text: string;
+  page_start: number;
+  char_start: number;
+};
+
+export type ChunkPreviewResult = {
+  document_id: number;
+  page_count: number;
+  chunk_size: number;
+  overlap: number;
+  total_chunks: number;
+  chunks: ChunkPreview[];
+};

@@ -20,7 +20,7 @@ import type {
   StudyDetail,
   StudySummary,
 } from "./types";
-import type { FileDocument, FileFolder, UploadResult } from "./files/types";
+import type { ChunkPreviewResult, FileDocument, FileFolder, UploadResult } from "./files/types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8888";
 
@@ -474,4 +474,8 @@ export function uploadFileDocuments(folderId: number, files: File[]): Promise<Up
 
 export function deleteFileDocument(id: number): Promise<void> {
   return requestNoContent(`/files/documents/${id}`, { method: "DELETE" });
+}
+
+export function fetchChunkPreview(documentId: number, limit = 20): Promise<ChunkPreviewResult> {
+  return requestJson<ChunkPreviewResult>(`/files/documents/${documentId}/chunks?limit=${limit}`);
 }

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Response, UploadFile
+from fastapi import APIRouter, HTTPException, Query, Response, UploadFile
 
-from app.files import repo
-from app.files.models import FileDocument, FileFolder, FolderName, UploadResult
+from app.files import repo, service
+from app.files.extract import ExtractionError
+from app.files.models import ChunkPreviewResult, FileDocument, FileFolder, FolderName, UploadResult
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -69,3 +70,14 @@ def delete_document(document_id: int) -> Response:
     if not repo.delete_document(document_id):
         raise HTTPException(status_code=404, detail="document not found")
     return Response(status_code=204)
+
+
+@router.get("/documents/{document_id}/chunks", response_model=ChunkPreviewResult)
+def preview_chunks(document_id: int, limit: int = Query(default=20, ge=1, le=1000)) -> ChunkPreviewResult:
+    """Debug view: the document's chunks as they would be indexed. An unreadable file is marked failed."""
+    try:
+        return service.preview_chunks(document_id, limit)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="document not found") from exc
+    except ExtractionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
