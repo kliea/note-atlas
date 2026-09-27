@@ -32,3 +32,20 @@ def chunk_overlap() -> int:
     """Characters shared by consecutive chunks; 0 is lab-faithful."""
     load_env()
     return int(os.environ["FILES_CHUNK_OVERLAP"])
+
+
+def chroma_path() -> Path:
+    """ChromaDB persistence directory; the Files pipeline's only vector store."""
+    load_env()
+    return _repo_path(os.environ["FILES_CHROMA_PATH"])
+
+
+def embed_model() -> str:
+    """Ollama embedding model (the lab uses nomic-embed-text)."""
+    load_env()
+    return os.environ["FILES_EMBED_MODEL"]
+
+
+def embed_batch_size() -> int:
+    load_env()
+    return max(1, int(os.environ["FILES_EMBED_BATCH"]))

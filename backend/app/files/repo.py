@@ -15,7 +15,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from app.db import get_connection
 from app.files.config import files_dir
-from app.files.models import FileDocument, FileFolder, SkippedUpload, UploadResult
+from app.files.models import FileDocument, FileFolder, FileJob, SkippedUpload, UploadResult
 
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 _MAX_STORED_NAME = 120
@@ -209,6 +209,31 @@ def mark_failed(document_id: int, reason: str) -> None:
     _update_document(document_id, status="failed", error=reason[:500])
 
 
+def mark_indexing(document_id: int) -> None:
+    _update_document(document_id, status="indexing", error=None)
+
+
+def mark_indexed(document_id: int, chunk_count: int) -> None:
+    _update_document(document_id, status="indexed", chunk_count=chunk_count, error=None, indexed_at=_now())
+
+
+def reset_folder_index(folder_id: int) -> None:
+    """After its vectors are cleared, every document in the folder is back to `uploaded`."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            """
+            UPDATE file_documents
+            SET status = 'uploaded', chunk_count = 0, error = NULL, indexed_at = NULL
+            WHERE folder_id = ?
+            """,
+            (folder_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _update_document(document_id: int, **fields: object) -> None:
     assignments = ", ".join(f"{name} = ?" for name in fields)
     conn = get_connection()
@@ -329,3 +354,66 @@ def _inside(root: Path, path: Path) -> Path:
     if resolved != resolved_root and not resolved.is_relative_to(resolved_root):
         raise ValueError(f"path escapes the files directory: {path}")
     return resolved
+
+
+# --- build jobs ----------------------------------------------------------------
+
+_JOB_COLUMNS = "id, folder_id, status, done, total, error, created_at, updated_at"
+
+
+def _job(row: sqlite3.Row) -> FileJob:
+    return FileJob(**{key: row[key] for key in row.keys()})
+
+
+def create_job(folder_id: int, total: int) -> FileJob:
+    now = _now()
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            """
+            INSERT INTO file_jobs (folder_id, status, total, created_at, updated_at)
+            VALUES (?, 'queued', ?, ?, ?)
+            """,
+            (folder_id, total, now, now),
+        )
+        conn.commit()
+        job_id = int(cursor.lastrowid)
+    finally:
+        conn.close()
+    job = get_job(job_id)
+    assert job is not None
+    return job
+
+
+def get_job(job_id: int) -> FileJob | None:
+    conn = get_connection()
+    try:
+        row = conn.execute(f"SELECT {_JOB_COLUMNS} FROM file_jobs WHERE id = ?", (job_id,)).fetchone()
+    finally:
+        conn.close()
+    return _job(row) if row is not None else None
+
+
+def unfinished_jobs(folder_id: int) -> list[FileJob]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            f"SELECT {_JOB_COLUMNS} FROM file_jobs WHERE folder_id = ? AND status IN ('queued', 'running')",
+            (folder_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [_job(row) for row in rows]
+
+
+def update_job(job_id: int, **fields: object) -> None:
+    assignments = ", ".join(f"{name} = ?" for name in fields)
+    conn = get_connection()
+    try:
+        conn.execute(
+            f"UPDATE file_jobs SET {assignments}, updated_at = ? WHERE id = ?",
+            (*fields.values(), _now(), job_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()

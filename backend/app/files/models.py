@@ -74,3 +74,39 @@ class ChunkPreviewResult(BaseModel):
     overlap: int
     total_chunks: int
     chunks: list[ChunkPreview]
+
+
+JobStatus = Literal["queued", "running", "done", "failed"]
+
+
+class FileJob(BaseModel):
+    """A folder index build started from the API."""
+
+    id: int
+    folder_id: int
+    status: JobStatus
+    done: int
+    total: int
+    error: str | None
+    created_at: str
+    updated_at: str
+
+
+class BuildSummary(BaseModel):
+    indexed: int
+    skipped: int
+    failed: int
+    chunks: int
+
+
+class FolderIndexStatus(BaseModel):
+    folder_id: int
+    name: str
+    chunk_count: int
+
+
+class IndexStatus(BaseModel):
+    """Knowledge Base Status: chunks stored in ChromaDB, in total and per folder."""
+
+    total_chunks: int
+    folders: list[FolderIndexStatus]
