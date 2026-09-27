@@ -125,6 +125,16 @@ OLLAMA_MODEL=qwen3:4b uvicorn app.main:app --host 127.0.0.1 --port 8888
 
 Vector search uses `sentence-transformers` via `backend/app/embed.py`. Change `EMBED_MODEL` to another MiniLM-class model with **384 dimensions**. After changing it, run `POST /reindex`. A different embedding dimension needs a schema bump — do not mix sizes in one `notes.db`.
 
+## Files pipeline (lab RAG)
+
+The **Files** tab (`?view=files`) is a third, isolated RAG pipeline: folders of PDFs and `.txt` files, fixed 500-character chunks, `nomic-embed-text` embeddings in ChromaDB (`data/chroma_files/`), top-3 retrieval, and `phi3` answers. It uses its own `FILES_*` settings (see `.env.example`) and never touches notes, papers, or their vector tables.
+
+```bash
+ollama pull phi3 && ollama pull nomic-embed-text
+```
+
+The same pipeline has a Streamlit front end for the MSIT lab: see [`lab/README.md`](lab/README.md) (`streamlit run lab/app.py` → http://localhost:8501).
+
 ## Squash-merge notes (`refactor/nui-board` → `main`)
 
 This branch is a strangler-fig cutover (R1–R7, R8 skipped, R9). Prefer a **squash merge** onto `main` so the public history is one commit, not the intermediate board-behind-a-hash steps.
