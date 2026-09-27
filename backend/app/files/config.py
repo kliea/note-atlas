@@ -49,3 +49,22 @@ def embed_model() -> str:
 def embed_batch_size() -> int:
     load_env()
     return max(1, int(os.environ["FILES_EMBED_BATCH"]))
+
+
+def llm_model() -> str:
+    """Ollama chat model for answers (the lab uses phi3). OLLAMA_MODEL is not used here."""
+    load_env()
+    return os.environ["FILES_LLM_MODEL"]
+
+
+def top_k() -> int:
+    """Chunks retrieved per question (the lab uses 3)."""
+    load_env()
+    return max(1, int(os.environ["FILES_TOP_K"]))
+
+
+def score_threshold() -> float | None:
+    """Minimum cosine similarity a chunk needs to reach the model; blank (the default) is off."""
+    load_env()
+    raw = os.environ["FILES_SCORE_THRESHOLD"].strip()
+    return float(raw) if raw else None

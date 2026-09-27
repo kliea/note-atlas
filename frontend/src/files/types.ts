@@ -74,3 +74,30 @@ export type IndexStatus = {
   total_chunks: number;
   folders: FolderIndexStatus[];
 };
+
+export type RetrievedChunk = {
+  id: string;
+  document_id: number;
+  folder_id: number;
+  filename: string;
+  page_start: number;
+  chunk_idx: number;
+  text: string;
+  score: number;
+};
+
+export type FileAsk = {
+  id: number;
+  question: string;
+  answer: string;
+  folder_ids: number[] | null;
+  chunks: RetrievedChunk[];
+  model: string;
+  created_at: string;
+};
+
+export type FilesAskDone = {
+  empty: string | null;
+  chunks: RetrievedChunk[];
+  ask: FileAsk | null;
+};

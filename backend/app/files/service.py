@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
-from app.files import build, repo, store
+from collections.abc import Iterator
+from dataclasses import dataclass
+
+from app.files import answer, build, repo, retrieve, store
 from app.files.build import Progress, document_chunks
-from app.files.config import chunk_overlap, chunk_size
+from app.files.config import chunk_overlap, chunk_size, llm_model, score_threshold
 from app.files.models import (
     BuildSummary,
     ChunkPreview,
     ChunkPreviewResult,
+    FileAsk,
     FolderIndexStatus,
     IndexStatus,
+    RetrievedChunk,
 )
+
+EMPTY_SCOPE = "No chunks are indexed in this scope yet. Upload files and build the knowledge base first."
 
 
 class BuildInProgress(Exception):
@@ -81,3 +88,64 @@ def index_status() -> IndexStatus:
 def _refuse_while_building(folder_id: int) -> None:
     if build.is_building(folder_id):
         raise BuildInProgress(f"folder {folder_id} is being indexed")
+
+
+# --- Ask -----------------------------------------------------------------------
+
+
+@dataclass
+class AskPlan:
+    """What an Ask will do before any tokens are generated.
+
+    `empty_message` set: nothing is indexed in scope, so neither the embedder nor the model runs.
+    `chunks` empty with a score threshold on: nothing was close enough, so the answer is the
+    refusal line and the model does not run.
+    """
+
+    question: str
+    folder_ids: list[int] | None
+    chunks: list[RetrievedChunk]
+    empty_message: str | None = None
+
+    @property
+    def calls_model(self) -> bool:
+        return self.empty_message is None and bool(self.chunks)
+
+
+def plan_ask(question: str, folder_ids: list[int] | None = None, top_k: int | None = None) -> AskPlan:
+    """Retrieve context for the question. Raises EmbeddingError if Ollama can't embed it."""
+    question = question.strip()
+    scope = sorted(set(folder_ids)) if folder_ids else None
+    if retrieve.scope_chunk_count(scope) == 0:
+        return AskPlan(question=question, folder_ids=scope, chunks=[], empty_message=EMPTY_SCOPE)
+    chunks = retrieve.retrieve_context(question, scope, top_k)
+    return AskPlan(question=question, folder_ids=scope, chunks=chunks)
+
+
+def stream_answer(plan: AskPlan) -> Iterator[str]:
+    """Answer tokens. Raises LlmError if Ollama fails mid-answer."""
+    if plan.empty_message is not None:
+        return
+    if not plan.chunks:
+        # Only reachable with FILES_SCORE_THRESHOLD on: nothing cleared the gate.
+        yield answer.REFUSAL
+        return
+    yield from answer.stream_answer(plan.question, plan.chunks)
+
+
+def record_ask(plan: AskPlan, text: str) -> FileAsk | None:
+    """Write the Chat History row; an empty-scope ask is not recorded."""
+    if plan.empty_message is not None:
+        return None
+    model = llm_model() if plan.calls_model else f"none (score threshold {score_threshold()})"
+    return repo.add_ask(plan.question, text.strip(), plan.folder_ids, plan.chunks, model)
+
+
+def ask(question: str, folder_ids: list[int] | None = None, top_k: int | None = None) -> tuple[AskPlan, str]:
+    """Plan, answer, and record in one call (the Streamlit app and scripts use this)."""
+    plan = plan_ask(question, folder_ids, top_k)
+    if plan.empty_message is not None:
+        return plan, plan.empty_message
+    text = "".join(stream_answer(plan)).strip()
+    record_ask(plan, text)
+    return plan, text

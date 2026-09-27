@@ -134,12 +134,14 @@ def _priority_slot(priority: Priority) -> Iterator[None]:
             _board_idle.notify_all()
 
 
-def _base_payload(messages: list[dict[str, str]], *, stream: bool, temperature: float | None) -> dict[str, Any]:
+def _base_payload(
+    messages: list[dict[str, str]], *, stream: bool, temperature: float | None, model: str | None = None
+) -> dict[str, Any]:
     options: dict[str, Any] = {"num_ctx": context_size(messages)}
     if temperature is not None:
         options["temperature"] = temperature
     return {
-        "model": ollama_model(),
+        "model": model or ollama_model(),
         "messages": messages,
         "stream": stream,
         # qwen3 (and similar) otherwise spend minutes in a hidden reasoning trace
@@ -160,11 +162,15 @@ def chat(
     temperature: float | None = None,
     priority: Priority = "board",
     timeout: float = _GENERATE_TIMEOUT_SECONDS,
+    model: str | None = None,
 ) -> str:
-    """Send a chat completion to Ollama. All generation goes through here."""
+    """Send a chat completion to Ollama. All generation goes through here.
+
+    `model` overrides OLLAMA_MODEL for this call only (the Files pipeline uses phi3).
+    """
     host = ollama_host()
-    model = ollama_model()
-    payload = _base_payload(messages, stream=False, temperature=temperature)
+    model = model or ollama_model()
+    payload = _base_payload(messages, stream=False, temperature=temperature, model=model)
     if schema is not None:
         # Constrains output to this JSON schema.
         payload["format"] = schema
@@ -201,11 +207,12 @@ def chat_stream(
     messages: list[dict[str, str]],
     *,
     timeout: float = _GENERATE_TIMEOUT_SECONDS,
+    model: str | None = None,
 ) -> Iterator[str]:
-    """Yield assistant text pieces as Ollama streams them."""
+    """Yield assistant text pieces as Ollama streams them. `model` overrides OLLAMA_MODEL for this call."""
     host = ollama_host()
-    model = ollama_model()
-    payload = _base_payload(messages, stream=True, temperature=None)
+    model = model or ollama_model()
+    payload = _base_payload(messages, stream=True, temperature=None, model=model)
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
         f"{host}/api/chat",

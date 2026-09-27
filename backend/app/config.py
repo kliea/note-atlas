@@ -27,6 +27,9 @@ _DEFAULTS: dict[str, str] = {
     "FILES_CHROMA_PATH": "./data/chroma_files",
     "FILES_EMBED_MODEL": "nomic-embed-text",
     "FILES_EMBED_BATCH": "32",
+    "FILES_LLM_MODEL": "phi3",
+    "FILES_TOP_K": "3",
+    "FILES_SCORE_THRESHOLD": "",
 }
 
 # Repo root is two levels above this file: note-atlas/backend/app/config.py
