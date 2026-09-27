@@ -125,6 +125,33 @@ pipeline and prompt.
 | 6 | Larger local models | `FILES_MODEL_PICKER=1` | A **Model** picker listing the chat models pulled into Ollama (`ollama pull llama3`, `ollama pull mistral`, …). The model used is recorded on each Chat History row. |
 | 7 | Multi-user deployment | none | Not built. |
 
+## Comparing variants (for the write-up)
+
+`backend/scripts/compare_pipelines.py` runs a question file through variants of this pipeline and
+writes a CSV and a Markdown table to `data/eval/`. It works on a copy of the database and builds
+each index setup into its own Chroma directory, so your knowledge base and Chat History are not
+touched.
+
+```bash
+# once: create a Files folder named "Lab" and upload the handout PDF into it (no need to build)
+cd backend
+.venv/bin/python scripts/compare_pipelines.py ../lab/eval_questions.yaml
+.venv/bin/python scripts/compare_pipelines.py ../lab/eval_questions.yaml --variants baseline,hybrid
+```
+
+By default it runs the lab baseline and five variants that each change one thing: chunk overlap
+100, MiniLM embeddings, `qwen3:4b`, a 0.35 score threshold, and hybrid search. Each model is
+warmed up first, so load time isn't counted as latency. The report gives:
+
+- **Off-topic refused**: questions the documents don't cover that got exactly the refusal line.
+- **In-scope answered**: questions they do cover that did *not* get the refusal.
+- **Hit@k**: in-scope questions whose expected file (and page, where given) was retrieved.
+- **Latency**: median seconds per question.
+- **Best retrieval score**: in-scope vs off-topic, per index setup, to help pick `FILES_SCORE_THRESHOLD`.
+
+`lab/eval_questions.yaml` has 8 in-scope and 4 off-topic questions for the handout; copy it for
+your own documents.
+
 ## Troubleshooting (Part 11)
 
 | Error | Fix |
