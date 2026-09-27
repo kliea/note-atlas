@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass
 
+from app.db import init_db
 from app.files import answer, build, repo, retrieve, store
 from app.files.build import Progress, document_chunks
 from app.files.config import chunk_overlap, chunk_size, llm_model, score_threshold
@@ -13,12 +14,49 @@ from app.files.models import (
     ChunkPreview,
     ChunkPreviewResult,
     FileAsk,
+    FileDocument,
+    FileFolder,
     FolderIndexStatus,
     IndexStatus,
     RetrievedChunk,
+    UploadResult,
 )
 
 EMPTY_SCOPE = "No chunks are indexed in this scope yet. Upload files and build the knowledge base first."
+
+
+def init() -> None:
+    """Apply pending migrations; the Streamlit app calls this since no FastAPI lifespan runs."""
+    init_db()
+
+
+# --- folders and files (thin pass-throughs so callers need only this module) ---
+
+
+def list_folders() -> list[FileFolder]:
+    return repo.list_folders()
+
+
+def create_folder(name: str) -> FileFolder:
+    """Raises repo.FolderNameTaken."""
+    return repo.create_folder(name.strip())
+
+
+def list_documents(folder_id: int) -> list[FileDocument]:
+    return repo.list_documents(folder_id)
+
+
+def add_files(folder_id: int, uploads: list[tuple[str, bytes]]) -> UploadResult:
+    """Store uploads in the folder; duplicates are skipped. Raises repo.UnsupportedFile / UploadTooLarge."""
+    return repo.add_documents(folder_id, uploads)
+
+
+def chat_history(limit: int = 50) -> list[FileAsk]:
+    return repo.list_asks(limit)
+
+
+def clear_chat_history() -> None:
+    repo.clear_asks()
 
 
 class BuildInProgress(Exception):

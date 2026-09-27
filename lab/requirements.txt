@@ -1,0 +1,8 @@
+# Streamlit lab app (lab/app.py) over the Files pipeline service layer.
+# Install from the repo root:  pip install -r lab/requirements.txt
+# The lab handout also lists `ollama`; not needed here: Note Atlas talks to Ollama over HTTP.
+streamlit>=1.40
+chromadb>=1.0
+pymupdf>=1.24
+pydantic>=2.9
+sqlite-vec>=0.1.6
