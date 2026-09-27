@@ -24,6 +24,9 @@ _DEFAULTS: dict[str, str] = {
     "FILES_DIR": "./data/files",
     "FILES_CHUNK_SIZE": "500",
     "FILES_CHUNK_OVERLAP": "0",
+    "FILES_CHROMA_PATH": "./data/chroma_files",
+    "FILES_EMBED_MODEL": "nomic-embed-text",
+    "FILES_EMBED_BATCH": "32",
 }
 
 # Repo root is two levels above this file: note-atlas/backend/app/config.py

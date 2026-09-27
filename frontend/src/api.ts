@@ -20,7 +20,14 @@ import type {
   StudyDetail,
   StudySummary,
 } from "./types";
-import type { ChunkPreviewResult, FileDocument, FileFolder, UploadResult } from "./files/types";
+import type {
+  ChunkPreviewResult,
+  FileDocument,
+  FileFolder,
+  FileJob,
+  IndexStatus,
+  UploadResult,
+} from "./files/types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8888";
 
@@ -434,7 +441,8 @@ export function reextractAll(): Promise<{ queued: number; busy: number }> {
 async function requestNoContent(path: string, init: RequestInit): Promise<void> {
   const response = await fetch(`${API_BASE}${path}`, init);
   if (!response.ok) {
-    throw new Error(`${path} failed: ${response.status}`);
+    const body = (await response.json().catch(() => null)) as { detail?: unknown } | null;
+    throw new Error(body?.detail ? String(body.detail) : `${path} failed: ${response.status}`);
   }
 }
 
@@ -478,4 +486,20 @@ export function deleteFileDocument(id: number): Promise<void> {
 
 export function fetchChunkPreview(documentId: number, limit = 20): Promise<ChunkPreviewResult> {
   return requestJson<ChunkPreviewResult>(`/files/documents/${documentId}/chunks?limit=${limit}`);
+}
+
+export function buildFileFolder(folderId: number): Promise<FileJob> {
+  return requestJson<FileJob>(`/files/folders/${folderId}/build`, { method: "POST" });
+}
+
+export function fetchFileJob(jobId: number): Promise<FileJob> {
+  return requestJson<FileJob>(`/files/jobs/${jobId}`);
+}
+
+export function clearFileIndex(folderId: number): Promise<void> {
+  return requestNoContent(`/files/folders/${folderId}/index`, { method: "DELETE" });
+}
+
+export function fetchFilesStatus(): Promise<IndexStatus> {
+  return requestJson<IndexStatus>("/files/status");
 }

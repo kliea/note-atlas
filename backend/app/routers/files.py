@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Response, UploadFile
 
-from app.files import repo, service
+from app.files import build, repo, service
 from app.files.extract import ExtractionError
-from app.files.models import ChunkPreviewResult, FileDocument, FileFolder, FolderName, UploadResult
+from app.files.models import (
+    ChunkPreviewResult,
+    FileDocument,
+    FileFolder,
+    FileJob,
+    FolderName,
+    IndexStatus,
+    UploadResult,
+)
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -37,7 +45,12 @@ def rename_folder(folder_id: int, body: FolderName) -> FileFolder:
 
 @router.delete("/folders/{folder_id}", status_code=204)
 def delete_folder(folder_id: int) -> Response:
-    if not repo.delete_folder(folder_id):
+    """Remove the folder, its stored files, and its vectors."""
+    try:
+        deleted = service.delete_folder(folder_id)
+    except service.BuildInProgress as exc:
+        raise HTTPException(status_code=409, detail="the folder is being indexed; try again when it finishes") from exc
+    if not deleted:
         raise HTTPException(status_code=404, detail="folder not found")
     return Response(status_code=204)
 
@@ -67,7 +80,12 @@ async def upload_documents(folder_id: int, files: list[UploadFile]) -> UploadRes
 
 @router.delete("/documents/{document_id}", status_code=204)
 def delete_document(document_id: int) -> Response:
-    if not repo.delete_document(document_id):
+    """Remove the document, its stored file, and exactly its vectors."""
+    try:
+        deleted = service.delete_document(document_id)
+    except service.BuildInProgress as exc:
+        raise HTTPException(status_code=409, detail="the folder is being indexed; try again when it finishes") from exc
+    if not deleted:
         raise HTTPException(status_code=404, detail="document not found")
     return Response(status_code=204)
 
@@ -81,3 +99,43 @@ def preview_chunks(document_id: int, limit: int = Query(default=20, ge=1, le=100
         raise HTTPException(status_code=404, detail="document not found") from exc
     except ExtractionError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/folders/{folder_id}/build", response_model=FileJob, status_code=202)
+def build_folder(folder_id: int, background: BackgroundTasks) -> FileJob:
+    """Build Knowledge Base for the folder in the background; returns the job to poll.
+
+    If the folder is already building, that job is returned instead of starting another.
+    """
+    if repo.get_folder(folder_id) is None:
+        raise HTTPException(status_code=404, detail="folder not found")
+    job, created = build.start_job(folder_id)
+    if created:
+        background.add_task(build.run_job, job.id)
+    return job
+
+
+@router.get("/jobs/{job_id}", response_model=FileJob)
+def get_job(job_id: int) -> FileJob:
+    job = build.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    return job
+
+
+@router.delete("/folders/{folder_id}/index", status_code=204)
+def clear_folder_index(folder_id: int) -> Response:
+    """Clear Knowledge Base for one folder: its vectors go, its files stay (reset to uploaded)."""
+    try:
+        cleared = service.clear_folder_index(folder_id)
+    except service.BuildInProgress as exc:
+        raise HTTPException(status_code=409, detail="the folder is being indexed; try again when it finishes") from exc
+    if not cleared:
+        raise HTTPException(status_code=404, detail="folder not found")
+    return Response(status_code=204)
+
+
+@router.get("/status", response_model=IndexStatus)
+def index_status() -> IndexStatus:
+    """Knowledge Base Status: stored chunks in total and per folder."""
+    return service.index_status()

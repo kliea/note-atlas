@@ -50,3 +50,27 @@ export type ChunkPreviewResult = {
   total_chunks: number;
   chunks: ChunkPreview[];
 };
+
+export type JobStatus = "queued" | "running" | "done" | "failed";
+
+export type FileJob = {
+  id: number;
+  folder_id: number;
+  status: JobStatus;
+  done: number;
+  total: number;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type FolderIndexStatus = {
+  folder_id: number;
+  name: string;
+  chunk_count: number;
+};
+
+export type IndexStatus = {
+  total_chunks: number;
+  folders: FolderIndexStatus[];
+};

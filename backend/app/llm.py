@@ -248,3 +248,35 @@ def chat_stream(
         raise LlmError(str(reason)) from exc
     except TimeoutError as exc:
         raise LlmError("timeout") from exc
+
+
+def embed(
+    texts: list[str],
+    *,
+    model: str,
+    timeout: float = _GENERATE_TIMEOUT_SECONDS,
+) -> list[list[float]]:
+    """Embed texts with an Ollama embedding model (`/api/embed`). The caller names the model."""
+    host = ollama_host()
+    body = json.dumps({"model": model, "input": texts}).encode("utf-8")
+    request = urllib.request.Request(
+        f"{host}/api/embed",
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise LlmError(_http_error(model, exc.code)) from exc
+    except urllib.error.URLError as exc:
+        reason = getattr(exc, "reason", exc)
+        raise LlmError(str(reason)) from exc
+    except TimeoutError as exc:
+        raise LlmError("timeout") from exc
+
+    embeddings = raw.get("embeddings")
+    if not isinstance(embeddings, list) or len(embeddings) != len(texts):
+        raise LlmError("unexpected embedding response")
+    return [[float(x) for x in vector] for vector in embeddings]
