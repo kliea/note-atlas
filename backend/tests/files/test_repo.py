@@ -104,7 +104,8 @@ def test_bad_file_rejects_the_whole_batch() -> None:
         ("noext", PDF),
     ],
 )
-def test_classify_rejects_unsupported_files(name: str, data: bytes) -> None:
+def test_classify_rejects_unsupported_files(name: str, data: bytes, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FILES_TXT_FALLBACK", "0")  # lab default: UTF-8 only
     with pytest.raises(repo.UnsupportedFile):
         repo.classify_upload(name, data)
 

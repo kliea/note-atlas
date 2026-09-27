@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 DocumentStatus = Literal["uploaded", "indexing", "indexed", "failed"]
 
@@ -44,6 +44,14 @@ class FileDocument(BaseModel):
     error: str | None
     indexed_at: str | None
     created_at: str
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def encoding(self) -> str | None:
+        """For .txt uploads, the charset the file was read with (enhancement 2)."""
+        from app.files.repo import text_encoding
+
+        return text_encoding(self.mime)
 
 
 class SkippedUpload(BaseModel):
@@ -123,12 +131,15 @@ class RetrievedChunk(BaseModel):
     chunk_idx: int
     text: str
     score: float  # cosine similarity, 1 - distance
+    # Which search found it: vector (the lab default), bm25, or both (hybrid, enhancement 4).
+    retriever: Literal["vector", "bm25", "both"] = "vector"
 
 
 class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     folder_ids: list[int] | None = None  # None or empty: every folder
     top_k: int | None = Field(default=None, ge=1, le=20)
+    model: str | None = Field(default=None, min_length=1, max_length=200)  # enhancement 6
 
 
 class FileAsk(BaseModel):
@@ -141,3 +152,30 @@ class FileAsk(BaseModel):
     chunks: list[RetrievedChunk]
     model: str
     created_at: str
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def sources(self) -> list[str] | None:
+        """`filename · p.N` for each distinct source (enhancement 3); None when turned off or refused."""
+        from app.files.answer import source_line
+
+        return source_line(self.answer, self.chunks)
+
+
+class FilesSettings(BaseModel):
+    """What the UIs need to know about which enhancements are on."""
+
+    accepted: list[str]
+    default_model: str
+    top_k: int
+    show_sources: bool
+    hybrid: bool
+    memory_turns: int
+    model_picker: bool
+    score_threshold: float | None
+
+
+class ModelList(BaseModel):
+    default: str
+    models: list[str]
+    error: str | None = None

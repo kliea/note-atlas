@@ -68,3 +68,42 @@ def score_threshold() -> float | None:
     load_env()
     raw = os.environ["FILES_SCORE_THRESHOLD"].strip()
     return float(raw) if raw else None
+
+
+# --- lab enhancement toggles (F6) ------------------------------------------------
+
+
+def _flag(name: str) -> bool:
+    load_env()
+    return os.environ[name].strip().lower() not in {"0", "false", "no", "off", ""}
+
+
+def docx_enabled() -> bool:
+    """Enhancement 1: accept Word .docx uploads."""
+    return _flag("FILES_DOCX")
+
+
+def txt_fallback_enabled() -> bool:
+    """Enhancement 2: .txt that isn't UTF-8 is read as Windows-1252 instead of rejected."""
+    return _flag("FILES_TXT_FALLBACK")
+
+
+def show_sources() -> bool:
+    """Enhancement 3: show a `filename · p.N` source line under each answer."""
+    return _flag("FILES_SHOW_SOURCES")
+
+
+def hybrid_enabled() -> bool:
+    """Enhancement 4: fuse BM25 keyword search with vector search (Reciprocal Rank Fusion)."""
+    return _flag("FILES_HYBRID")
+
+
+def memory_turns() -> int:
+    """Enhancement 5: earlier question/answer pairs (same scope) included in the prompt; 0 is off."""
+    load_env()
+    return max(0, int(os.environ["FILES_MEMORY_TURNS"] or 0))
+
+
+def model_picker_enabled() -> bool:
+    """Enhancement 6: a question may name any pulled Ollama model instead of FILES_LLM_MODEL."""
+    return _flag("FILES_MODEL_PICKER")

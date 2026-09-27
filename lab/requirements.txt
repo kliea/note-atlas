@@ -6,3 +6,5 @@ chromadb>=1.0
 pymupdf>=1.24
 pydantic>=2.9
 sqlite-vec>=0.1.6
+python-docx>=1.1
+rank_bm25>=0.2.2

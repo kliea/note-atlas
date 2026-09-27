@@ -23,6 +23,7 @@ export type FileDocument = {
   error: string | null;
   indexed_at: string | null;
   created_at: string;
+  encoding: string | null;
 };
 
 export type SkippedUpload = {
@@ -84,6 +85,7 @@ export type RetrievedChunk = {
   chunk_idx: number;
   text: string;
   score: number;
+  retriever: "vector" | "bm25" | "both";
 };
 
 export type FileAsk = {
@@ -94,10 +96,28 @@ export type FileAsk = {
   chunks: RetrievedChunk[];
   model: string;
   created_at: string;
+  sources: string[] | null;
 };
 
 export type FilesAskDone = {
   empty: string | null;
   chunks: RetrievedChunk[];
   ask: FileAsk | null;
+};
+
+export type FilesSettings = {
+  accepted: string[];
+  default_model: string;
+  top_k: number;
+  show_sources: boolean;
+  hybrid: boolean;
+  memory_turns: number;
+  model_picker: boolean;
+  score_threshold: number | null;
+};
+
+export type ModelList = {
+  default: string;
+  models: string[];
+  error: string | null;
 };

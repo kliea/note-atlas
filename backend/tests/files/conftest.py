@@ -54,6 +54,14 @@ def embedder(monkeypatch: pytest.MonkeyPatch) -> FakeEmbedder:
 
 
 @pytest.fixture(autouse=True)
+def _pulled_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ollama's /api/tags is faked too: only the Files default model is pulled."""
+    from app.llm import OllamaModel
+
+    monkeypatch.setattr("app.llm.list_models", lambda: [OllamaModel(name="phi3", family="phi3")])
+
+
+@pytest.fixture(autouse=True)
 def _no_active_builds() -> Iterator[None]:
     """The in-process build registry never leaks between tests."""
     from app.files import build

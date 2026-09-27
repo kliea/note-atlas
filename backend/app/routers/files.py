@@ -19,8 +19,10 @@ from app.files.models import (
     FileDocument,
     FileFolder,
     FileJob,
+    FilesSettings,
     FolderName,
     IndexStatus,
+    ModelList,
     UploadResult,
 )
 
@@ -163,7 +165,7 @@ def ask(body: AskRequest) -> StreamingResponse:
 
     def events() -> Iterator[str]:
         try:
-            plan = service.plan_ask(question, body.folder_ids, body.top_k)
+            plan = service.plan_ask(question, body.folder_ids, body.top_k, body.model)
             chunks = [chunk.model_dump() for chunk in plan.chunks]
             if plan.empty_message is not None:
                 yield _sse("done", {"empty": plan.empty_message, "chunks": [], "ask": None})
@@ -197,3 +199,15 @@ def list_asks(limit: int = Query(default=50, ge=1, le=500)) -> list[FileAsk]:
 def clear_asks() -> Response:
     repo.clear_asks()
     return Response(status_code=204)
+
+
+@router.get("/settings", response_model=FilesSettings)
+def files_settings() -> FilesSettings:
+    """Which lab enhancements are on, for the UIs."""
+    return service.settings()
+
+
+@router.get("/models", response_model=ModelList)
+def files_models() -> ModelList:
+    """Pulled Ollama chat models for the model picker (enhancement 6)."""
+    return service.available_models()

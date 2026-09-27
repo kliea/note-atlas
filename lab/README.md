@@ -88,7 +88,7 @@ way round). If you need to, stop one of them first.
   UUIDs, so clicking **Build Knowledge Base** twice doesn't store every chunk twice.
 - **Uploads are kept** (under `data/files/`), so building again only processes new files.
 - **Sources.** Each retrieved chunk shows its file name and the page it starts on.
-- **`.txt` files** are accepted as well as PDFs (enhancement activity 2).
+- **`.txt` and `.docx` files** are accepted as well as PDFs (enhancement activities 1 and 2).
 - `import pymupdf` instead of `import fitz`: it's the same library, and `fitz` now prints a
   deprecation warning.
 - The `ollama` Python package isn't needed; Note Atlas calls Ollama's HTTP API.
@@ -107,6 +107,23 @@ Set in the repo's `.env` (see `.env.example`) or the shell:
 | `FILES_CHROMA_PATH` | `./data/chroma_files` | ChromaDB directory |
 | `FILES_DIR` | `./data/files` | stored uploads |
 | `DB_PATH` | `./data/notes.db` | shared SQLite database |
+
+## Enhancement activities
+
+Each one has its own switch in `.env`. The first four in the table add inputs or display and are
+on by default; hybrid search and memory change what the model sees, so they're off by default.
+With everything at its default, a PDF question answered by `phi3` goes through exactly the lab's
+pipeline and prompt.
+
+| # | Enhancement | Switch (default) | What it does |
+|---|---|---|---|
+| 1 | Word (.docx) | `FILES_DOCX=1` | Paragraphs and tables (one row per line, cells joined by ` \| `) in document order. **A .docx is one page**: Word has no fixed pagination to recover, so chunks report `p.1` rather than invented page numbers. |
+| 2 | Text (.txt) | `FILES_TXT_FALLBACK=1` | A file that isn't UTF-8 is read as Windows-1252 instead of rejected; the encoding used is shown next to the file name. A UTF-8 byte-order mark is dropped. |
+| 3 | Document names | `FILES_SHOW_SOURCES=1` | Every retrieved chunk shows `filename · p.N` (always), and each answer gets a **Sources** line. The line is left off when the answer is the refusal. |
+| 4 | Hybrid search | `FILES_HYBRID=0` | BM25 keyword search over the same chunks, fused with vector search by Reciprocal Rank Fusion (k = 60). Each chunk says which search found it: vector, keyword (BM25), or both. The score shown stays the cosine similarity. |
+| 5 | Conversational memory | `FILES_MEMORY_TURNS=0` | The last N questions and answers asked in the same scope go into the prompt in their own section, before the context. The prompt still says every fact must come from the context. Retrieval still uses only the new question. |
+| 6 | Larger local models | `FILES_MODEL_PICKER=1` | A **Model** picker listing the chat models pulled into Ollama (`ollama pull llama3`, `ollama pull mistral`, …). The model used is recorded on each Chat History row. |
+| 7 | Multi-user deployment | none | Not built. |
 
 ## Troubleshooting (Part 11)
 

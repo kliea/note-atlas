@@ -40,6 +40,15 @@ def collection() -> Collection:
     )
 
 
+def folder_filter(folder_ids: list[int] | None) -> dict[str, Any] | None:
+    """Chroma `where` for a scope: one folder, several, or (None / empty) all."""
+    if not folder_ids:
+        return None
+    if len(folder_ids) == 1:
+        return {"folder_id": folder_ids[0]}
+    return {"folder_id": {"$in": list(folder_ids)}}
+
+
 def chunk_id(document_id: int, chunk_idx: int) -> str:
     return f"{document_id}:{chunk_idx}"
 

@@ -17,6 +17,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
+from app.files import answer as files_answer  # noqa: E402
 from app.files import repo, service  # noqa: E402
 from app.files.config import embed_model, llm_model, top_k  # noqa: E402
 from app.files.embed import EmbeddingError  # noqa: E402
@@ -34,6 +35,7 @@ st.caption(
 )
 
 service.init()
+settings = service.settings()
 
 # ==================================================
 # SESSION STATE
@@ -49,8 +51,12 @@ def flash(kind: str, message: str) -> None:
     st.session_state.flash.append((kind, message))
 
 
+RETRIEVER_LABEL = {"vector": "vector", "bm25": "keyword (BM25)", "both": "vector + keyword"}
+
+
 def chunk_label(index: int, chunk: RetrievedChunk) -> str:
-    return f"Chunk {index} · {chunk.filename} · p.{chunk.page_start}"
+    label = f"Chunk {index} · {chunk.filename} · p.{chunk.page_start}"
+    return f"{label} · {RETRIEVER_LABEL[chunk.retriever]}" if settings.hybrid else label
 
 
 # ==================================================
@@ -99,7 +105,7 @@ if folder is None:
 else:
     uploaded_files = st.sidebar.file_uploader(
         "Upload PDF Documents",
-        type=["pdf", "txt"],
+        type=[suffix.lstrip(".") for suffix in settings.accepted],
         accept_multiple_files=True,
         key=f"uploader-{st.session_state.uploader_key}",
     )
@@ -143,11 +149,25 @@ else:
                 pages = f"{document.page_count} pages · " if document.page_count else ""
                 st.markdown(f"**{document.filename}**  \n{pages}{document.chunk_count} chunks · {document.status}")
 
+# Enhancement 6: any pulled Ollama model, phi3 first.
+chosen_model = settings.default_model
+if settings.model_picker:
+    models = service.available_models()
+    chosen_model = st.sidebar.selectbox("Model", models.models)
+    if models.error:
+        st.sidebar.caption(f"Ollama unreachable ({models.error}); showing the default model only.")
+
 # ==================================================
 # MAIN UI
 # ==================================================
 
 st.header("Ask Questions")
+notes = [
+    "Hybrid search (vector + BM25) is on." if settings.hybrid else "",
+    f"Remembers the last {settings.memory_turns} questions in this scope." if settings.memory_turns else "",
+]
+if any(notes):
+    st.caption(" ".join(n for n in notes if n))
 
 scope = st.radio(
     "Search in",
@@ -161,14 +181,20 @@ if st.button("Ask") and question.strip():
     folder_ids = [folder.id] if scope == THIS_FOLDER and folder is not None else None
     try:
         with st.spinner("Searching documents..."):
-            plan = service.plan_ask(question, folder_ids)
+            plan = service.plan_ask(question, folder_ids, model=chosen_model)
         if plan.empty_message is not None:
             st.info(plan.empty_message)
         else:
             st.subheader("Answer")
-            answer = st.write_stream(service.stream_answer(plan))
-            service.record_ask(plan, answer if isinstance(answer, str) else "".join(map(str, answer)))
+            streamed = st.write_stream(service.stream_answer(plan))
+            text = streamed if isinstance(streamed, str) else "".join(map(str, streamed))
+            service.record_ask(plan, text)
+            sources = files_answer.source_line(text, plan.chunks)
+            if sources:
+                st.markdown(f"**Sources:** {'; '.join(sources)}")
             st.caption(f"Retrieved {len(plan.chunks)} chunks.")
+            if plan.model != settings.default_model:
+                st.caption(f"Answered by {plan.model}.")
             st.subheader("Retrieved Context")
             for i, chunk in enumerate(plan.chunks, start=1):
                 with st.expander(chunk_label(i, chunk)):
@@ -189,6 +215,5 @@ if history:
     for item in history:
         st.markdown(f"**Question:** {item.question}")
         st.markdown(f"**Answer:** {item.answer}")
-        sources = "; ".join(dict.fromkeys(f"{c.filename} · p.{c.page_start}" for c in item.chunks))
-        st.caption(f"{item.model}" + (f" · Sources: {sources}" if sources else ""))
+        st.caption(item.model + (f" · Sources: {'; '.join(item.sources)}" if item.sources else ""))
         st.divider()
