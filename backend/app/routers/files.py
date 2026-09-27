@@ -177,7 +177,13 @@ def ask(body: AskRequest) -> StreamingResponse:
             saved = service.record_ask(plan, "".join(pieces))
             yield _sse(
                 "done",
-                {"empty": None, "chunks": chunks, "ask": saved.model_dump() if saved else None},
+                {
+                    "empty": None,
+                    "chunks": chunks,
+                    "ask": saved.model_dump() if saved else None,
+                    # Set only when memory changed what was searched for.
+                    "retrieval_query": plan.retrieval_query if plan.retrieval_query != plan.question else None,
+                },
             )
         except (EmbeddingError, LlmError) as exc:
             yield _sse("error", {"detail": str(exc)})

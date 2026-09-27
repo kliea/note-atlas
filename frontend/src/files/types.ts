@@ -103,6 +103,7 @@ export type FilesAskDone = {
   empty: string | null;
   chunks: RetrievedChunk[];
   ask: FileAsk | null;
+  retrieval_query: string | null;
 };
 
 export type FilesSettings = {
