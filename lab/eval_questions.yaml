@@ -1,0 +1,55 @@
+# Questions for the Files pipeline comparison (F7), written for the lab handout PDF.
+# Upload the handout into a Files folder named "Lab" and build it once, then from backend/:
+#   .venv/bin/python scripts/compare_pipelines.py ../lab/eval_questions.yaml
+#
+# type: in_scope (the documents answer it) or off_topic (they don't; the right answer is the
+# refusal line). expected_source is matched against file names (a substring is enough);
+# expected_page lists the pages a chunk holding the answer can start on.
+# variants: optional; leave it out for the baseline plus one change at a time. Each entry is a
+# built-in name or a mapping of name, chunk_size, chunk_overlap, embedder
+# (nomic-embed-text | minilm), model, threshold, hybrid.
+
+folder: Lab
+top_k: 3
+
+questions:
+  - q: Which embedding model does the lab use?
+    type: in_scope
+    expected_source: Laboratory Exercise
+    expected_page: [4, 5, 7, 8, 15]
+  - q: Where does ChromaDB persist its data?
+    type: in_scope
+    expected_source: Laboratory Exercise
+    expected_page: [7]
+  - q: How many chunks does retrieve_context return?
+    type: in_scope
+    expected_source: Laboratory Exercise
+    expected_page: [8]
+  - q: What command starts the Streamlit application?
+    type: in_scope
+    expected_source: Laboratory Exercise
+    expected_page: [13, 14, 15, 16]
+  - q: Which URL opens the app in the browser?
+    type: in_scope
+    expected_source: Laboratory Exercise
+    expected_page: [14]
+  - q: What Python version is recommended?
+    type: in_scope
+    expected_source: Laboratory Exercise
+    expected_page: [2]
+  - q: How do I fix the error "No module named fitz"?
+    type: in_scope
+    expected_source: Laboratory Exercise
+    expected_page: [15, 16]
+  - q: What enhancement activities are suggested after the exercise?
+    type: in_scope
+    expected_source: Laboratory Exercise
+    expected_page: [16, 17]
+  - q: What is the capital of France?
+    type: off_topic
+  - q: Who won the 2018 FIFA World Cup?
+    type: off_topic
+  - q: What is the boiling point of water at sea level?
+    type: off_topic
+  - q: Explain how photosynthesis works.
+    type: off_topic

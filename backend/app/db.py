@@ -26,7 +26,7 @@ from app.models import (
     Topic,
 )
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 _V1_STATEMENTS = (
     """
@@ -127,7 +127,7 @@ def _load_sqlite_vec(conn: sqlite3.Connection) -> None:
 
 
 def migrate(conn: sqlite3.Connection | None = None) -> None:
-    """Apply pending schema versions (1 notes, 2 chunks, 3 space, 4 extract_status, 5 point context, 6 research track, 7 scholarly resolution, 8 Siblings and Ancestors, 9 notes sent from a Paper, 10 Research Track Ask index, 11 Semantic Scholar ids)."""
+    """Apply pending schema versions (1 notes, 2 chunks, 3 space, 4 extract_status, 5 point context, 6 research track, 7 scholarly resolution, 8 Siblings and Ancestors, 9 notes sent from a Paper, 10 Research Track Ask index, 11 Semantic Scholar ids, 12 Files pipeline)."""
     owns_connection = conn is None
     if conn is None:
         conn = get_connection()
@@ -177,6 +177,9 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
         if 11 not in applied:
             _migrate_v11(conn)
             conn.execute("INSERT INTO schema_migrations (version) VALUES (11)")
+        if 12 not in applied:
+            _migrate_v12(conn)
+            conn.execute("INSERT INTO schema_migrations (version) VALUES (12)")
         conn.commit()
     finally:
         if owns_connection:
@@ -184,7 +187,7 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
 
 
 def migrate_down(target_version: int, conn: sqlite3.Connection | None = None) -> None:
-    """Roll schema back to target_version. v11 drops Semantic Scholar ids; v10 drops the Research Ask index; v9 drops note → Paper links; v8 drops Siblings and Ancestors; v7 drops scholarly resolution; v6 drops the research track; v5 drops point context; v4 drops extract_status; v3 drops space."""
+    """Roll schema back to target_version. v12 drops the Files pipeline tables; v11 drops Semantic Scholar ids; v10 drops the Research Ask index; v9 drops note → Paper links; v8 drops Siblings and Ancestors; v7 drops scholarly resolution; v6 drops the research track; v5 drops point context; v4 drops extract_status; v3 drops space."""
     if target_version < 2:
         raise ValueError("cannot roll back below schema version 2 (chunks + sqlite-vec)")
     owns_connection = conn is None
@@ -197,6 +200,9 @@ def migrate_down(target_version: int, conn: sqlite3.Connection | None = None) ->
             raise ValueError(
                 f"target version {target_version} is ahead of applied {current}"
             )
+        if 12 in applied and target_version < 12:
+            _downgrade_v12(conn)
+            conn.execute("DELETE FROM schema_migrations WHERE version = 12")
         if 11 in applied and target_version < 11:
             _downgrade_v11(conn)
             conn.execute("DELETE FROM schema_migrations WHERE version = 11")
@@ -573,6 +579,76 @@ def _downgrade_v11(conn: sqlite3.Connection) -> None:
     conn.execute("DROP INDEX IF EXISTS studies_s2")
     if "s2_id" in _column_names(conn, "studies"):
         conn.execute("ALTER TABLE studies DROP COLUMN s2_id")
+
+
+# The Files pipeline (lab RAG): folders of uploaded files, index build jobs, and Ask history.
+# Its vectors live only in ChromaDB, never here. Rolling back leaves data/files/ and
+# data/chroma_files/ on disk; delete those by hand.
+_V12_STATEMENTS = (
+    """
+    CREATE TABLE IF NOT EXISTS file_folders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS file_documents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        folder_id INTEGER NOT NULL REFERENCES file_folders(id) ON DELETE CASCADE,
+        filename TEXT NOT NULL,
+        mime TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        sha256 TEXT NOT NULL,
+        stored_path TEXT NOT NULL,
+        page_count INTEGER,
+        chunk_count INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'uploaded'
+            CHECK (status IN ('uploaded', 'indexing', 'indexed', 'failed')),
+        error TEXT,
+        indexed_at TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE (folder_id, sha256)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS file_documents_folder ON file_documents (folder_id)",
+    """
+    CREATE TABLE IF NOT EXISTS file_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        folder_id INTEGER NOT NULL REFERENCES file_folders(id) ON DELETE CASCADE,
+        status TEXT NOT NULL DEFAULT 'queued'
+            CHECK (status IN ('queued', 'running', 'done', 'failed')),
+        done INTEGER NOT NULL DEFAULT 0,
+        total INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS file_asks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        question TEXT NOT NULL,
+        answer TEXT NOT NULL,
+        folder_ids_json TEXT NOT NULL,
+        chunk_refs_json TEXT NOT NULL,
+        model TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )
+    """,
+)
+
+_V12_TABLES = ("file_asks", "file_jobs", "file_documents", "file_folders")
+
+
+def _migrate_v12(conn: sqlite3.Connection) -> None:
+    for statement in _V12_STATEMENTS:
+        conn.execute(statement)
+
+
+def _downgrade_v12(conn: sqlite3.Connection) -> None:
+    for table in _V12_TABLES:
+        conn.execute(f"DROP TABLE IF EXISTS {table}")
 
 
 def init_db() -> None:

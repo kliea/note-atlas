@@ -20,6 +20,26 @@ _DEFAULTS: dict[str, str] = {
     "OPENALEX_API_KEY": "",
     "S2_API_KEY": "",
     "CROSSREF_MAILTO": "",
+    # Files pipeline (lab RAG); its settings are read through app.files.config.
+    "FILES_DIR": "./data/files",
+    "FILES_CHUNK_SIZE": "500",
+    "FILES_CHUNK_OVERLAP": "0",
+    "FILES_CHROMA_PATH": "./data/chroma_files",
+    "FILES_EMBED_MODEL": "nomic-embed-text",
+    "FILES_EMBED_BATCH": "32",
+    # "ollama" (lab default) or "sentence-transformers" (e.g. FILES_EMBED_MODEL=all-MiniLM-L6-v2).
+    # Changing either needs its own FILES_CHROMA_PATH: vector sizes differ (768 vs 384).
+    "FILES_EMBED_PROVIDER": "ollama",
+    "FILES_LLM_MODEL": "phi3",
+    "FILES_TOP_K": "3",
+    "FILES_SCORE_THRESHOLD": "",
+    # Lab enhancement activities (F6), each independently switchable.
+    "FILES_DOCX": "1",
+    "FILES_TXT_FALLBACK": "1",
+    "FILES_SHOW_SOURCES": "1",
+    "FILES_HYBRID": "0",
+    "FILES_MEMORY_TURNS": "0",
+    "FILES_MODEL_PICKER": "1",
 }
 
 # Repo root is two levels above this file: note-atlas/backend/app/config.py
