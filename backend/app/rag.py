@@ -117,14 +117,20 @@ def plan_ask(
     k: int = 5,
     note_ids: Sequence[int] | None = None,
     retrieve: Callable[[str, int], list[SearchHit]] | None = None,
+    board_id: int | None = None,
 ) -> AskPlan:
     """Retrieve chunks and decide whether the context is strong enough."""
     if retrieve is not None:
         hits = retrieve(question.strip(), k)
     elif note_ids:
-        hits = search(question.strip(), k=max(k, len(note_ids) * 2), note_ids=list(note_ids))
+        hits = search(
+            question.strip(),
+            k=max(k, len(note_ids) * 2),
+            note_ids=list(note_ids),
+            board_id=board_id,
+        )
     else:
-        hits = search(question.strip(), k=max(k, 10))
+        hits = search(question.strip(), k=max(k, 10), board_id=board_id)
     if note_ids:
         allowed = set(note_ids)
         hits = [hit for hit in hits if hit.note_id in allowed]

@@ -40,7 +40,10 @@ router = APIRouter(prefix="/notes", tags=["notes"])
 
 @router.post("", response_model=NoteDetail, status_code=201)
 def post_note(payload: NoteCreate, background: BackgroundTasks) -> NoteDetail:
-    created = create_note(payload)
+    try:
+        created = create_note(payload)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="board not found") from None
     # Always add to the corpus first; ask answers skip topic extraction.
     ingest_note(background, created.id, extract=payload.source != "ask")
     pending = get_note(created.id)
@@ -50,12 +53,12 @@ def post_note(payload: NoteCreate, background: BackgroundTasks) -> NoteDetail:
 
 
 @router.get("", response_model=list[NoteSummary])
-def get_notes() -> list[NoteSummary]:
-    return list_notes()
+def get_notes(board_id: int | None = None) -> list[NoteSummary]:
+    return list_notes(board_id)
 
 
 @router.post("/import", response_model=NoteDetail, status_code=201)
-def post_import(payload: dict[str, Any]) -> NoteDetail:
+def post_import(payload: dict[str, Any], board_id: int | None = None) -> NoteDetail:
     try:
         if payload.get("format") == "markdown":
             markdown = MarkdownImport.model_validate(payload)
@@ -70,6 +73,7 @@ def post_import(payload: dict[str, Any]) -> NoteDetail:
             title=bundle.note.title,
             source=bundle.note.source,
             raw_text=bundle.note.raw_text,
+            board_id=board_id,
         )
     )
     if topics:

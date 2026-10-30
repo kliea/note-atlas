@@ -21,6 +21,8 @@ class NoteCreate(BaseModel):
     raw_text: str = Field(min_length=1)
     x: float | None = None
     y: float | None = None
+    # None lands the note in the last-opened Board.
+    board_id: int | None = None
 
 
 class NoteSummary(BaseModel):
@@ -39,6 +41,7 @@ class NoteSummary(BaseModel):
     study_id: int | None = None
     claim_id: int | None = None
     study_title: str | None = None
+    board_id: int | None = None
 
 
 class Point(BaseModel):
@@ -191,6 +194,7 @@ class AskRequest(BaseModel):
     question: str = Field(min_length=1)
     k: int = Field(default=5, ge=1, le=20)
     note_ids: list[int] | None = None
+    board_id: int | None = None
 
     @field_validator("note_ids")
     @classmethod
@@ -440,3 +444,44 @@ class StudyDetail(StudySummary):
     leads_after: str | None = None
     leads_api_off: bool = False
     references: list[ReferenceItem] = Field(default_factory=list)
+
+
+class Board(BaseModel):
+    """A container for one domain of knowledge: its Notes, canvas, and Files folders."""
+
+    id: int
+    name: str
+    slug: str
+    description: str | None = None
+    created_at: str
+    last_opened_at: str | None = None
+    note_count: int = 0
+    folder_count: int = 0
+
+
+class BoardCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    description: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _strip_name(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("name is required")
+        return cleaned
+
+
+class BoardPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    description: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _strip_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("name is required")
+        return cleaned

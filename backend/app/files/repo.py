@@ -15,7 +15,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
-from app.db import get_connection
+from app.db import default_board_id, get_connection
 from app.files.config import docx_enabled, files_dir, txt_fallback_enabled
 from app.files.models import (
     FileAsk,
@@ -99,7 +99,8 @@ def create_folder(name: str) -> FileFolder:
     conn = get_connection()
     try:
         cursor = conn.execute(
-            "INSERT INTO file_folders (name, created_at) VALUES (?, ?)", (name, _now())
+            "INSERT INTO file_folders (name, created_at, board_id) VALUES (?, ?, ?)",
+            (name, _now(), default_board_id()),
         )
         conn.commit()
         folder_id = int(cursor.lastrowid)
