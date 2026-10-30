@@ -381,6 +381,8 @@ class Claim(BaseModel):
     original_text: str | None = None
     stale: bool = False
     sent_note_id: int | None = None
+    # The Board the sent note is on now (it can be moved).
+    sent_board_id: int | None = None
 
 
 class ClaimCreate(BaseModel):
@@ -417,6 +419,8 @@ class SendToBoard(BaseModel):
 
     x: float | None = None
     y: float | None = None
+    # None sends to the last-opened Board.
+    board_id: int | None = None
 
 
 class ClaimPatch(BaseModel):
@@ -485,3 +489,7 @@ class BoardPatch(BaseModel):
         if not cleaned:
             raise ValueError("name is required")
         return cleaned
+
+
+class NoteMove(BaseModel):
+    board_id: int

@@ -466,11 +466,21 @@ export function refreshLeads(paperId: number): Promise<StudyDetail> {
 export function sendClaimToBoard(
   claimId: number,
   centre: { x: number; y: number } | null,
+  boardId: number | null = null,
 ): Promise<StudyDetail> {
   return requestJson<StudyDetail>(`/research/claims/${claimId}/send`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(centre ?? {}),
+    body: JSON.stringify({ ...(centre ?? {}), ...(boardId === null ? {} : { board_id: boardId }) }),
+  });
+}
+
+// Strings to notes left behind on the old Board are cut.
+export function moveNote(noteId: number, boardId: number): Promise<NoteDetail> {
+  return requestJson<NoteDetail>(`/notes/${noteId}/move`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ board_id: boardId }),
   });
 }
 

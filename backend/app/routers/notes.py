@@ -16,6 +16,7 @@ from app.db import (
     delete_note,
     get_note,
     list_notes,
+    move_note,
     patch_note,
     replace_note_extraction,
     set_extract_status,
@@ -30,6 +31,7 @@ from app.models import (
     NoteBundle,
     NoteCreate,
     NoteDetail,
+    NoteMove,
     NotePatch,
     NoteSummary,
 )
@@ -191,7 +193,20 @@ def extract_note(note_id: int, background: BackgroundTasks) -> NoteDetail:
     return finished
 
 
+@router.post("/{note_id}/move", response_model=NoteDetail)
+def post_move_note(note_id: int, payload: NoteMove) -> NoteDetail:
+    """Move a note to another Board; Strings to notes left behind are cut."""
+    try:
+        moved = move_note(note_id, payload.board_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="board not found") from None
+    if moved is None:
+        raise HTTPException(status_code=404, detail="note not found")
+    return moved
+
+
 def _slug(title: str) -> str:
     cleaned = "".join(ch.lower() if ch.isalnum() else "-" for ch in title).strip("-")
     collapsed = "-".join(part for part in cleaned.split("-") if part)
     return collapsed[:48] or "note"
+

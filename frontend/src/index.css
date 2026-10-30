@@ -1429,3 +1429,13 @@ textarea {
   justify-self: start;
   color: var(--danger, #b42318);
 }
+
+.research-board-select {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.1rem 0.3rem;
+  border: 1px solid var(--line);
+  border-radius: 0.3rem;
+  background: var(--panel);
+  color: var(--fg);
+}

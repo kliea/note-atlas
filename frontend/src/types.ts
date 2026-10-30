@@ -43,6 +43,7 @@ export type NoteSummary = {
   study_id: number | null;
   claim_id: number | null;
   study_title: string | null;
+  board_id: number | null;
 };
 
 export type NotePatch = {
@@ -256,6 +257,7 @@ export type Claim = {
   original_text: string | null;
   stale: boolean;
   sent_note_id: number | null;
+  sent_board_id: number | null;
 };
 
 export type StudyDetail = StudySummary & {
