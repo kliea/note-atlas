@@ -277,3 +277,27 @@ def test_index_omits_dismissed_point_context(
         retrieve=lambda q, k: search(q, k=k, embed=_context_embed),
     )
     assert plan.grounded is False
+
+
+def test_search_scoped_to_notes_past_the_vec_k_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """sqlite-vec caps k at 4096; selected-note search must not ask for every chunk."""
+    from app.db import replace_note_chunks
+    from app.embed import serialize_embedding
+
+    client = _client(tmp_path, monkeypatch)
+    crowd = client.post(
+        "/notes", json={"title": "Crowd", "source": "test", "raw_text": "B+ tree crowd"}
+    ).json()
+    target = client.post(
+        "/notes", json={"title": "Target", "source": "test", "raw_text": "pasta"}
+    ).json()
+    near = serialize_embedding(_axis(0))
+    replace_note_chunks(crowd["id"], [(None, f"crowd {i}", near) for i in range(4100)])
+    replace_note_chunks(target["id"], [(None, "target pasta", serialize_embedding(_axis(1)))])
+
+    hits = search("b+ tree", k=3, embed=_fake_embed, note_ids=[target["id"]])
+
+    assert [hit.note_id for hit in hits] == [target["id"]]
+    assert hits[0].text == "target pasta"

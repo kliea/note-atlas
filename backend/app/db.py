@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -1137,19 +1138,36 @@ def replace_note_chunks(
         conn.close()
 
 
-def search_chunk_rows(query_blob: bytes, k: int) -> list[dict[str, object]]:
+def search_chunk_rows(
+    query_blob: bytes, k: int, note_ids: Sequence[int] | None = None
+) -> list[dict[str, object]]:
+    """KNN over chunk_vec. With note_ids, sqlite-vec filters to their chunks before top-k."""
     conn = get_connection()
     try:
-        matches = conn.execute(
-            """
-            SELECT rowid, distance
-            FROM chunk_vec
-            WHERE embedding MATCH ?
-              AND k = ?
-            ORDER BY distance
-            """,
-            (query_blob, k),
-        ).fetchall()
+        if note_ids:
+            placeholders = ", ".join("?" for _ in note_ids)
+            matches = conn.execute(
+                f"""
+                SELECT rowid, distance
+                FROM chunk_vec
+                WHERE embedding MATCH ?
+                  AND k = ?
+                  AND rowid IN (SELECT id FROM chunks WHERE note_id IN ({placeholders}))
+                ORDER BY distance
+                """,
+                (query_blob, k, *note_ids),
+            ).fetchall()
+        else:
+            matches = conn.execute(
+                """
+                SELECT rowid, distance
+                FROM chunk_vec
+                WHERE embedding MATCH ?
+                  AND k = ?
+                ORDER BY distance
+                """,
+                (query_blob, k),
+            ).fetchall()
         hits: list[dict[str, object]] = []
         for match in matches:
             chunk = conn.execute(
