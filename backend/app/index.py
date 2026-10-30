@@ -75,16 +75,12 @@ def search(
     total = chunk_count()
     if total == 0:
         return []
-    fetch_k = total if note_ids else min(k, total)
     encode = embed or embed_texts
     vector = encode([query])[0]
-    rows = search_chunk_rows(serialize_embedding(vector), fetch_k)
+    rows = search_chunk_rows(serialize_embedding(vector), min(k, total), note_ids=note_ids)
     hits: list[SearchHit] = []
-    allowed = set(note_ids) if note_ids else None
     for row in rows:
         note_id = int(row["note_id"])
-        if allowed is not None and note_id not in allowed:
-            continue
         distance = float(row["distance"])
         # cosine distance ≈ 1 - similarity for L2-normalized MiniLM vectors
         score = max(0.0, min(1.0, 1.0 - distance))
@@ -98,8 +94,6 @@ def search(
                 score=score,
             )
         )
-        if len(hits) >= k:
-            break
     return hits
 
 
