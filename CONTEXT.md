@@ -20,6 +20,10 @@ A single card on a Board's canvas; its first line is its title.
 **String**:
 A link between two Notes on the same Board, either drawn by the user or accepted from a suggestion.
 
+**Citation**:
+An Ask answer's pointer to a Note, File chunk, or Paper it drew on, kept as a snapshot of what was quoted. A cited Note gets a String; a cited File chunk or Paper shows as a chip on the answer.
+_Avoid_: source link, reference (a Reference is a Paper citing a Study)
+
 **Research Track**:
 A separate workspace, apart from any Board, dedicated to reading and relating academic papers.
 _Avoid_: research mode, research board, `research/` (that folder is the SCA experiment, unrelated)
