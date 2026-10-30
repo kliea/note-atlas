@@ -1,13 +1,13 @@
 # Note Atlas
 
-Local-first spatial notebook. Capture a thought on the canvas; on save a local LLM rephrases the jot into a clearer note, extracts topics, and related notes offer a faint string you can accept. Ask with a lasso. Nothing leaves localhost except the optional first-time download of embedding weights into the sentence-transformers cache.
+Local-first spatial notebook. Capture a thought on the canvas; on save a local LLM extracts topics and suggests context for terse points, keeping your wording as written, and related notes offer a faint string you can accept. Ask with a lasso. Nothing leaves localhost except the optional first-time download of embedding weights into the sentence-transformers cache.
 
 ## Interaction model
 
 The app opens on the **board**. There is no Capture / Repository / Map / Ask chrome.
 
 - **Write** — double-click empty space, press `N`, tear off **New note**, or paste. First line is the title.
-- **Polish** — after save, the local LLM rewrites the jot into a clearer note with implied detail, then extracts topics and tags. The card shimmers while that runs. Ask answers are left alone.
+- **Extract** — after save, the local LLM extracts topics and tags, then suggests context for terse points that you can accept or dismiss. Your own wording is never rewritten. The card shimmers while that runs. Ask answers are left alone.
 - **Link** — drag a handle, or select two notes and press `L`. Cut the bead on a string to disconnect. Suggested links appear as dashed ghosts; accept or dismiss.
 - **Ask** — Shift-drag a cluster, then `/`. Tab to a note, Space to select, Shift-Space to add more, then `/`. With nothing selected, ask spans the whole board. The answer pins as a note with strings to cited sources. Off-topic questions are declined, not invented.
 - **Undo** — ⌘Z / Ctrl+Z, depth 50.
@@ -103,7 +103,7 @@ pnpm dev
 
 4. Open [http://localhost:5252](http://localhost:5252). You land on the canvas.
 
-5. Write a jot and leave the card. It is rewritten into a fuller note, then topics appear. Ask with `/`. Off-topic questions return `I don't have that in the notes.`
+5. Write a jot and leave the card. Topics appear, with suggested context on terse points. Ask with `/`. Off-topic questions return `I don't have that in the notes.`
 
 Checks:
 
