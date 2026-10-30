@@ -20,6 +20,18 @@ import type {
   StudyDetail,
   StudySummary,
 } from "./types";
+import type {
+  ChunkPreviewResult,
+  FileAsk,
+  FilesAskDone,
+  FilesSettings,
+  FileDocument,
+  FileFolder,
+  FileJob,
+  IndexStatus,
+  ModelList,
+  UploadResult,
+} from "./files/types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8888";
 
@@ -426,4 +438,116 @@ export function reextractPaper(paperId: number): Promise<StudyDetail> {
 
 export function reextractAll(): Promise<{ queued: number; busy: number }> {
   return requestJson<{ queued: number; busy: number }>("/research/reextract-all", { method: "POST" });
+}
+
+// --- Files pipeline (lab RAG) ---------------------------------------------------
+
+async function requestNoContent(path: string, init: RequestInit): Promise<void> {
+  const response = await fetch(`${API_BASE}${path}`, init);
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { detail?: unknown } | null;
+    throw new Error(body?.detail ? String(body.detail) : `${path} failed: ${response.status}`);
+  }
+}
+
+export function fetchFileFolders(): Promise<FileFolder[]> {
+  return requestJson<FileFolder[]>("/files/folders");
+}
+
+export function createFileFolder(name: string): Promise<FileFolder> {
+  return requestJson<FileFolder>("/files/folders", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function renameFileFolder(id: number, name: string): Promise<FileFolder> {
+  return requestJson<FileFolder>(`/files/folders/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function deleteFileFolder(id: number): Promise<void> {
+  return requestNoContent(`/files/folders/${id}`, { method: "DELETE" });
+}
+
+export function fetchFileDocuments(folderId: number): Promise<FileDocument[]> {
+  return requestJson<FileDocument[]>(`/files/folders/${folderId}/documents`);
+}
+
+export function uploadFileDocuments(folderId: number, files: File[]): Promise<UploadResult> {
+  const body = new FormData();
+  for (const file of files) body.append("files", file);
+  return requestJson<UploadResult>(`/files/folders/${folderId}/documents`, { method: "POST", body });
+}
+
+export function deleteFileDocument(id: number): Promise<void> {
+  return requestNoContent(`/files/documents/${id}`, { method: "DELETE" });
+}
+
+export function fetchChunkPreview(documentId: number, limit = 20): Promise<ChunkPreviewResult> {
+  return requestJson<ChunkPreviewResult>(`/files/documents/${documentId}/chunks?limit=${limit}`);
+}
+
+export function buildFileFolder(folderId: number): Promise<FileJob> {
+  return requestJson<FileJob>(`/files/folders/${folderId}/build`, { method: "POST" });
+}
+
+export function fetchFileJob(jobId: number): Promise<FileJob> {
+  return requestJson<FileJob>(`/files/jobs/${jobId}`);
+}
+
+export function clearFileIndex(folderId: number): Promise<void> {
+  return requestNoContent(`/files/folders/${folderId}/index`, { method: "DELETE" });
+}
+
+export function fetchFilesStatus(): Promise<IndexStatus> {
+  return requestJson<IndexStatus>("/files/status");
+}
+
+type FilesAskHandlers = {
+  onToken: (text: string) => void;
+  onDone: (done: FilesAskDone) => void;
+  onError: (detail: string) => void;
+};
+
+// Ask the Files pipeline: one folder, several, or every folder when folderIds is null.
+export async function streamFilesAsk(
+  question: string,
+  folderIds: number[] | null,
+  handlers: FilesAskHandlers,
+  signal?: AbortSignal,
+  model?: string | null,
+): Promise<void> {
+  await postSse(
+    "/files/ask",
+    { question, folder_ids: folderIds, model: model ?? null },
+    (event, raw) => {
+      if (!raw) return;
+      const data = JSON.parse(raw) as Record<string, unknown>;
+      if (event === "token" && typeof data.text === "string") handlers.onToken(data.text);
+      else if (event === "done") handlers.onDone(data as unknown as FilesAskDone);
+      else if (event === "error") handlers.onError(String(data.detail));
+    },
+    signal,
+  );
+}
+
+export function fetchFileAsks(): Promise<FileAsk[]> {
+  return requestJson<FileAsk[]>("/files/asks");
+}
+
+export function clearFileAsks(): Promise<void> {
+  return requestNoContent("/files/asks", { method: "DELETE" });
+}
+
+export function fetchFilesSettings(): Promise<FilesSettings> {
+  return requestJson<FilesSettings>("/files/settings");
+}
+
+export function fetchFilesModels(): Promise<ModelList> {
+  return requestJson<ModelList>("/files/models");
 }

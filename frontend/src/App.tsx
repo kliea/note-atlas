@@ -2,15 +2,19 @@ import { useEffect, useState } from "react";
 import { fetchHealth, fetchLlmPing } from "./api";
 import { BoardView } from "./components/BoardView";
 import { ResearchView, type ResearchTarget } from "./components/research/ResearchView";
+import { FilesView } from "./files/FilesView";
 import { StatusPills } from "./components/StatusPills";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { useTheme } from "./hooks/useTheme";
 import type { PillState } from "./types";
 
-type Workspace = "board" | "research";
+type Workspace = "board" | "research" | "files";
+
+const WORKSPACE_LABELS: Record<Workspace, string> = { board: "Board", research: "Research", files: "Files" };
 
 function readWorkspace(): Workspace {
-  return new URLSearchParams(window.location.search).get("view") === "research" ? "research" : "board";
+  const view = new URLSearchParams(window.location.search).get("view");
+  return view === "research" || view === "files" ? view : "board";
 }
 
 export default function App() {
@@ -25,7 +29,7 @@ export default function App() {
 
   function switchWorkspace(next: Workspace): void {
     const url = new URL(window.location.href);
-    if (next === "research") url.searchParams.set("view", "research");
+    if (next !== "board") url.searchParams.set("view", next);
     else url.searchParams.delete("view");
     window.history.replaceState(null, "", url);
     setWorkspace(next);
@@ -82,7 +86,7 @@ export default function App() {
         </div>
         <div className="topbar-tools">
           <div className="workspace-tabs" role="tablist" aria-label="Workspace">
-            {(["board", "research"] as const).map((name) => (
+            {(["board", "research", "files"] as const).map((name) => (
               <button
                 key={name}
                 type="button"
@@ -91,7 +95,7 @@ export default function App() {
                 aria-selected={workspace === name}
                 onClick={() => switchWorkspace(name)}
               >
-                {name === "board" ? "Board" : "Research"}
+                {WORKSPACE_LABELS[name]}
               </button>
             ))}
           </div>
@@ -99,7 +103,9 @@ export default function App() {
           <StatusPills backend={backend} model={model} modelName={modelName} />
         </div>
       </header>
-      {workspace === "research" ? (
+      {workspace === "files" ? (
+        <FilesView />
+      ) : workspace === "research" ? (
         <ResearchView colorMode={resolved} target={researchTarget} onOpenNote={openNote} />
       ) : (
         <BoardView colorMode={resolved} focusNoteId={boardFocus} onOpenStudy={openStudy} />

@@ -134,12 +134,14 @@ def _priority_slot(priority: Priority) -> Iterator[None]:
             _board_idle.notify_all()
 
 
-def _base_payload(messages: list[dict[str, str]], *, stream: bool, temperature: float | None) -> dict[str, Any]:
+def _base_payload(
+    messages: list[dict[str, str]], *, stream: bool, temperature: float | None, model: str | None = None
+) -> dict[str, Any]:
     options: dict[str, Any] = {"num_ctx": context_size(messages)}
     if temperature is not None:
         options["temperature"] = temperature
     return {
-        "model": ollama_model(),
+        "model": model or ollama_model(),
         "messages": messages,
         "stream": stream,
         # qwen3 (and similar) otherwise spend minutes in a hidden reasoning trace
@@ -160,11 +162,15 @@ def chat(
     temperature: float | None = None,
     priority: Priority = "board",
     timeout: float = _GENERATE_TIMEOUT_SECONDS,
+    model: str | None = None,
 ) -> str:
-    """Send a chat completion to Ollama. All generation goes through here."""
+    """Send a chat completion to Ollama. All generation goes through here.
+
+    `model` overrides OLLAMA_MODEL for this call only (the Files pipeline uses phi3).
+    """
     host = ollama_host()
-    model = ollama_model()
-    payload = _base_payload(messages, stream=False, temperature=temperature)
+    model = model or ollama_model()
+    payload = _base_payload(messages, stream=False, temperature=temperature, model=model)
     if schema is not None:
         # Constrains output to this JSON schema.
         payload["format"] = schema
@@ -201,11 +207,12 @@ def chat_stream(
     messages: list[dict[str, str]],
     *,
     timeout: float = _GENERATE_TIMEOUT_SECONDS,
+    model: str | None = None,
 ) -> Iterator[str]:
-    """Yield assistant text pieces as Ollama streams them."""
+    """Yield assistant text pieces as Ollama streams them. `model` overrides OLLAMA_MODEL for this call."""
     host = ollama_host()
-    model = ollama_model()
-    payload = _base_payload(messages, stream=True, temperature=None)
+    model = model or ollama_model()
+    payload = _base_payload(messages, stream=True, temperature=None, model=model)
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
         f"{host}/api/chat",
@@ -248,3 +255,59 @@ def chat_stream(
         raise LlmError(str(reason)) from exc
     except TimeoutError as exc:
         raise LlmError("timeout") from exc
+
+
+def embed(
+    texts: list[str],
+    *,
+    model: str,
+    timeout: float = _GENERATE_TIMEOUT_SECONDS,
+) -> list[list[float]]:
+    """Embed texts with an Ollama embedding model (`/api/embed`). The caller names the model."""
+    host = ollama_host()
+    body = json.dumps({"model": model, "input": texts}).encode("utf-8")
+    request = urllib.request.Request(
+        f"{host}/api/embed",
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise LlmError(_http_error(model, exc.code)) from exc
+    except urllib.error.URLError as exc:
+        reason = getattr(exc, "reason", exc)
+        raise LlmError(str(reason)) from exc
+    except TimeoutError as exc:
+        raise LlmError("timeout") from exc
+
+    embeddings = raw.get("embeddings")
+    if not isinstance(embeddings, list) or len(embeddings) != len(texts):
+        raise LlmError("unexpected embedding response")
+    return [[float(x) for x in vector] for vector in embeddings]
+
+
+class OllamaModel(BaseModel):
+    name: str
+    family: str | None = None
+
+
+def list_models() -> list[OllamaModel]:
+    """Models pulled into Ollama (`/api/tags`). Raises LlmError when Ollama is unreachable."""
+    request = urllib.request.Request(f"{ollama_host()}/api/tags", method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=_PING_TIMEOUT_SECONDS) as response:
+            payload: dict[str, Any] = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise LlmError(f"HTTP {exc.code}") from exc
+    except urllib.error.URLError as exc:
+        raise LlmError(str(getattr(exc, "reason", exc))) from exc
+    except TimeoutError as exc:
+        raise LlmError("timeout") from exc
+    return [
+        OllamaModel(name=str(item.get("name", "")), family=(item.get("details") or {}).get("family"))
+        for item in payload.get("models", [])
+        if item.get("name")
+    ]
