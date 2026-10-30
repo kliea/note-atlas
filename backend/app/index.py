@@ -71,13 +71,16 @@ def search(
     k: int = 5,
     embed: EmbedFn | None = None,
     note_ids: Sequence[int] | None = None,
+    board_id: int | None = None,
 ) -> list[SearchHit]:
     total = chunk_count()
     if total == 0:
         return []
     encode = embed or embed_texts
     vector = encode([query])[0]
-    rows = search_chunk_rows(serialize_embedding(vector), min(k, total), note_ids=note_ids)
+    rows = search_chunk_rows(
+        serialize_embedding(vector), min(k, total), note_ids=note_ids, board_id=board_id
+    )
     hits: list[SearchHit] = []
     for row in rows:
         note_id = int(row["note_id"])

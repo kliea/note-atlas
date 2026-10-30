@@ -12,7 +12,7 @@ from app.config import load_env
 from app.db import init_db
 from app.research_jobs import resolver as research_resolver
 from app.research_jobs import worker as research_worker
-from app.routers import ask, connections, files, health, llm, notes, points, research, search
+from app.routers import ask, boards, connections, files, health, llm, notes, points, research, search
 
 load_env()
 
@@ -44,6 +44,7 @@ app.add_middleware(
 )
 app.include_router(health.router)
 app.include_router(llm.router)
+app.include_router(boards.router)
 app.include_router(notes.router)
 app.include_router(points.router)
 app.include_router(connections.router)

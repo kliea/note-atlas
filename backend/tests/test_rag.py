@@ -39,7 +39,7 @@ def _note() -> NoteDetail:
 
 
 def test_plan_ask_declines_weak_scores(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("app.rag.search", lambda q, k=5: [_hit(score=0.12)])
+    monkeypatch.setattr("app.rag.search", lambda q, k=5, board_id=None: [_hit(score=0.12)])
     monkeypatch.setattr("app.rag.get_note", lambda _id: _note())
     plan = plan_ask("What is the capital of France?")
     assert plan.grounded is False
@@ -47,7 +47,7 @@ def test_plan_ask_declines_weak_scores(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_plan_ask_cites_strong_topic(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("app.rag.search", lambda q, k=5: [_hit(score=0.81)])
+    monkeypatch.setattr("app.rag.search", lambda q, k=5, board_id=None: [_hit(score=0.81)])
     monkeypatch.setattr("app.rag.get_note", lambda _id: _note())
     plan = plan_ask("Why does fanout reduce disk I/O?")
     assert plan.grounded is True
@@ -191,7 +191,7 @@ def test_plan_ask_scoped_summarize_uses_selected_notes(
 def test_plan_ask_unscoped_summarize_still_declines_weak_hits(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("app.rag.search", lambda q, k=5: [_hit(score=0.11)])
+    monkeypatch.setattr("app.rag.search", lambda q, k=5, board_id=None: [_hit(score=0.11)])
     monkeypatch.setattr("app.rag.get_note", lambda _id: _note())
     plan = plan_ask("summarize all contents of this note")
     assert plan.grounded is False
