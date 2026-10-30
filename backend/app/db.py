@@ -1445,3 +1445,26 @@ def delete_board_row(board_id: int) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def move_note(note_id: int, board_id: int) -> NoteDetail | None:
+    """Move a note to another Board. Strings to notes left behind are cut (ADR 0002)."""
+    if get_note(note_id) is None:
+        return None
+    if get_board(board_id) is None:
+        raise KeyError(board_id)
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE notes SET board_id = ? WHERE id = ?", (board_id, note_id))
+        conn.execute(
+            """
+            DELETE FROM connections
+            WHERE (from_note_id = :id AND to_note_id IN (SELECT id FROM notes WHERE board_id != :board))
+               OR (to_note_id = :id AND from_note_id IN (SELECT id FROM notes WHERE board_id != :board))
+            """,
+            {"id": note_id, "board": board_id},
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return get_note(note_id)

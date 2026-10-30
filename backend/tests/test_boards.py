@@ -122,3 +122,17 @@ def test_delete_board_removes_its_notes_but_not_the_last_board(client: TestClien
     assert client.get(f"/notes/{gone['id']}").status_code == 404
     assert client.get(f"/notes/{kept['id']}").status_code == 200
     assert [b["id"] for b in client.get("/boards").json()] == [general]
+
+
+def test_moving_a_note_cuts_strings_to_notes_left_behind(client: TestClient) -> None:
+    general = client.get("/boards").json()[0]["id"]
+    other = client.post("/boards", json={"name": "Cooking"}).json()["id"]
+    a = _note(client, "A", general)
+    b = _note(client, "B", general)
+    client.post("/connections", json={"from_note_id": a["id"], "to_note_id": b["id"]})
+
+    moved = client.post(f"/notes/{a['id']}/move", json={"board_id": other})
+    assert moved.status_code == 200
+    assert moved.json()["board_id"] == other
+    assert client.get("/connections").json() == []
+    assert client.post(f"/notes/{a['id']}/move", json={"board_id": 999}).status_code == 404

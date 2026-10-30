@@ -5,6 +5,7 @@ import {
   fetchBoards,
   fetchHealth,
   fetchLlmPing,
+  fetchNote,
   openBoard,
   patchBoard,
   setActiveBoard,
@@ -112,8 +113,17 @@ export default function App() {
   }
 
   function openNote(noteId: number): void {
-    setBoardFocus(noteId);
-    switchWorkspace("board");
+    // The note may be on another Board (a sent Claim can be moved); show that Board first.
+    void fetchNote(noteId)
+      .then((note) => {
+        const home = boards.find((board) => board.id === note.board_id);
+        if (home && home.id !== currentBoard?.id) showBoard(home);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        setBoardFocus(noteId);
+        switchWorkspace("board");
+      });
   }
 
   useEffect(() => {
