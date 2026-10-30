@@ -1,17 +1,37 @@
 import { useEffect, useRef, useState } from "react";
-import type { Claim } from "../../types";
+import type { Board, Claim } from "../../types";
 
 type ClaimCardProps = {
   claim: Claim;
   onEdit: (id: number, text: string) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
   onKeep: (id: number) => Promise<void>;
-  onSend: (id: number) => Promise<void>;
+  onSend: (id: number, boardId: number) => Promise<void>;
+  onMove: (noteId: number, boardId: number) => Promise<void>;
+  boards: Board[];
   onOpenNote: (noteId: number) => void;
   highlighted: boolean;
 };
 
-export function ClaimCard({ claim, onEdit, onDelete, onKeep, onSend, onOpenNote, highlighted }: ClaimCardProps) {
+// Before sending: the Board it will go to (last opened first). After: where it is now.
+function defaultBoardId(boards: Board[]): number | null {
+  const opened = [...boards].sort((a, b) => (b.last_opened_at ?? "").localeCompare(a.last_opened_at ?? ""));
+  return opened[0]?.id ?? null;
+}
+
+export function ClaimCard({
+  claim,
+  onEdit,
+  onDelete,
+  onKeep,
+  onSend,
+  onMove,
+  boards,
+  onOpenNote,
+  highlighted,
+}: ClaimCardProps) {
+  const [target, setTarget] = useState<number | null>(null);
+  const chosenBoard = claim.sent_board_id ?? target ?? defaultBoardId(boards);
   const cardRef = useRef<HTMLLIElement>(null);
   const [sending, setSending] = useState(false);
   const [showQuote, setShowQuote] = useState(false);
@@ -40,13 +60,46 @@ export function ClaimCard({ claim, onEdit, onDelete, onKeep, onSend, onOpenNote,
   }, [highlighted]);
 
   async function send(): Promise<void> {
+    if (chosenBoard === null) return;
     setSending(true);
     try {
-      await onSend(claim.id);
+      await onSend(claim.id, chosenBoard);
     } finally {
       setSending(false);
     }
   }
+
+  async function chooseBoard(boardId: number): Promise<void> {
+    if (claim.sent_note_id === null) {
+      setTarget(boardId);
+      return;
+    }
+    if (boardId === claim.sent_board_id) return;
+    setSending(true);
+    try {
+      await onMove(claim.sent_note_id, boardId);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const boardPicker =
+    boards.length > 1 && chosenBoard !== null ? (
+      <select
+        className="research-board-select"
+        aria-label={claim.sent_note_id === null ? "Board to send to" : "Move to another Board"}
+        title={claim.sent_note_id === null ? "Board to send to" : "Move this note to another Board"}
+        value={chosenBoard}
+        disabled={sending}
+        onChange={(event) => void chooseBoard(Number(event.target.value))}
+      >
+        {boards.map((board) => (
+          <option key={board.id} value={board.id}>
+            {board.name}
+          </option>
+        ))}
+      </select>
+    ) : null;
 
   return (
     <li
@@ -97,6 +150,7 @@ export function ClaimCard({ claim, onEdit, onDelete, onKeep, onSend, onOpenNote,
               on board ↗
             </button>
           )}
+          {claim.sent_note_id !== null && boardPicker}
           {claim.stale && (
             <span className="research-badge research-badge-muted" title="Not found in the latest extraction">
               not in latest extraction
@@ -122,9 +176,12 @@ export function ClaimCard({ claim, onEdit, onDelete, onKeep, onSend, onOpenNote,
             </button>
           )}
           {claim.sent_note_id === null && (
-            <button type="button" className="research-link-btn" disabled={sending} onClick={() => void send()}>
-              → send to board
-            </button>
+            <>
+              <button type="button" className="research-link-btn" disabled={sending} onClick={() => void send()}>
+                → send to board
+              </button>
+              {boardPicker}
+            </>
           )}
           <button
             type="button"

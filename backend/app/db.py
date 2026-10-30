@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from collections.abc import Sequence
 from datetime import datetime, timezone
@@ -11,6 +12,9 @@ from app.config import db_path
 from app.embed import EMBEDDING_DIM
 from app.layout import grid_position
 from app.models import (
+    Board,
+    BoardCreate,
+    BoardPatch,
     Connection,
     ConnectionCreate,
     ExtractStatus,
@@ -26,7 +30,7 @@ from app.models import (
     Topic,
 )
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 _V1_STATEMENTS = (
     """
@@ -127,7 +131,7 @@ def _load_sqlite_vec(conn: sqlite3.Connection) -> None:
 
 
 def migrate(conn: sqlite3.Connection | None = None) -> None:
-    """Apply pending schema versions (1 notes, 2 chunks, 3 space, 4 extract_status, 5 point context, 6 research track, 7 scholarly resolution, 8 Siblings and Ancestors, 9 notes sent from a Paper, 10 Research Track Ask index, 11 Semantic Scholar ids, 12 Files pipeline)."""
+    """Apply pending schema versions (1 notes, 2 chunks, 3 space, 4 extract_status, 5 point context, 6 research track, 7 scholarly resolution, 8 Siblings and Ancestors, 9 notes sent from a Paper, 10 Research Track Ask index, 11 Semantic Scholar ids, 12 Files pipeline, 13 Boards)."""
     owns_connection = conn is None
     if conn is None:
         conn = get_connection()
@@ -180,6 +184,9 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
         if 12 not in applied:
             _migrate_v12(conn)
             conn.execute("INSERT INTO schema_migrations (version) VALUES (12)")
+        if 13 not in applied:
+            _migrate_v13(conn)
+            conn.execute("INSERT INTO schema_migrations (version) VALUES (13)")
         conn.commit()
     finally:
         if owns_connection:
@@ -187,7 +194,7 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
 
 
 def migrate_down(target_version: int, conn: sqlite3.Connection | None = None) -> None:
-    """Roll schema back to target_version. v12 drops the Files pipeline tables; v11 drops Semantic Scholar ids; v10 drops the Research Ask index; v9 drops note → Paper links; v8 drops Siblings and Ancestors; v7 drops scholarly resolution; v6 drops the research track; v5 drops point context; v4 drops extract_status; v3 drops space."""
+    """Roll schema back to target_version. v13 drops Boards; v12 drops the Files pipeline tables; v11 drops Semantic Scholar ids; v10 drops the Research Ask index; v9 drops note → Paper links; v8 drops Siblings and Ancestors; v7 drops scholarly resolution; v6 drops the research track; v5 drops point context; v4 drops extract_status; v3 drops space."""
     if target_version < 2:
         raise ValueError("cannot roll back below schema version 2 (chunks + sqlite-vec)")
     owns_connection = conn is None
@@ -200,6 +207,9 @@ def migrate_down(target_version: int, conn: sqlite3.Connection | None = None) ->
             raise ValueError(
                 f"target version {target_version} is ahead of applied {current}"
             )
+        if 13 in applied and target_version < 13:
+            _downgrade_v13(conn)
+            conn.execute("DELETE FROM schema_migrations WHERE version = 13")
         if 12 in applied and target_version < 12:
             _downgrade_v12(conn)
             conn.execute("DELETE FROM schema_migrations WHERE version = 12")
@@ -651,15 +661,66 @@ def _downgrade_v12(conn: sqlite3.Connection) -> None:
         conn.execute(f"DROP TABLE IF EXISTS {table}")
 
 
+# Boards: each Note and Files folder belongs to exactly one Board (ADR 0002).
+# Existing rows move into one ordinary Board so the app behaves as before.
+_BOARDS_TABLE = """
+    CREATE TABLE IF NOT EXISTS boards (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        slug TEXT NOT NULL UNIQUE,
+        description TEXT,
+        created_at TEXT NOT NULL,
+        last_opened_at TEXT
+    )
+"""
+
+DEFAULT_BOARD_NAME = "General"
+
+
+def _migrate_v13(conn: sqlite3.Connection) -> None:
+    conn.execute(_BOARDS_TABLE)
+    now = datetime.now(timezone.utc).isoformat()
+    cursor = conn.execute(
+        "INSERT INTO boards (name, slug, description, created_at, last_opened_at) VALUES (?, ?, NULL, ?, ?)",
+        (DEFAULT_BOARD_NAME, board_slug(DEFAULT_BOARD_NAME), now, now),
+    )
+    board_id = int(cursor.lastrowid)
+    for table in ("notes", "file_folders"):
+        if "board_id" not in _column_names(conn, table):
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN board_id INTEGER")
+        conn.execute(f"UPDATE {table} SET board_id = ? WHERE board_id IS NULL", (board_id,))
+    conn.execute("CREATE INDEX IF NOT EXISTS notes_board ON notes (board_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS file_folders_board ON file_folders (board_id)")
+
+
+def _downgrade_v13(conn: sqlite3.Connection) -> None:
+    conn.execute("DROP INDEX IF EXISTS notes_board")
+    conn.execute("DROP INDEX IF EXISTS file_folders_board")
+    for table in ("notes", "file_folders"):
+        if "board_id" in _column_names(conn, table):
+            conn.execute(f"ALTER TABLE {table} DROP COLUMN board_id")
+    conn.execute("DROP TABLE IF EXISTS boards")
+
+
+def board_slug(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    return slug or "board"
+
+
 def init_db() -> None:
     migrate()
 
 
 def create_note(payload: NoteCreate) -> NoteDetail:
     created_at = datetime.now(timezone.utc).isoformat()
+    board_id = payload.board_id if payload.board_id is not None else default_board_id()
+    if get_board(board_id) is None:
+        raise KeyError(board_id)
     conn = get_connection()
     try:
-        index = int(conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0])
+        index = int(
+            conn.execute("SELECT COUNT(*) FROM notes WHERE board_id = ?", (board_id,)).fetchone()[0]
+        )
         x, y = grid_position(index)
         if payload.x is not None:
             x = payload.x
@@ -669,11 +730,11 @@ def create_note(payload: NoteCreate) -> NoteDetail:
             """
             INSERT INTO notes (
                 title, source, raw_text, created_at,
-                x, y, z, color, kind, pinned, ink_json
+                x, y, z, color, kind, pinned, ink_json, board_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, 0, NULL, 'typed', 0, NULL)
+            VALUES (?, ?, ?, ?, ?, ?, 0, NULL, 'typed', 0, NULL, ?)
             """,
-            (payload.title, payload.source, payload.raw_text, created_at, x, y),
+            (payload.title, payload.source, payload.raw_text, created_at, x, y, board_id),
         )
         conn.commit()
         note_id = int(cursor.lastrowid)
@@ -685,17 +746,22 @@ def create_note(payload: NoteCreate) -> NoteDetail:
     return detail
 
 
-def list_notes() -> list[NoteSummary]:
+def list_notes(board_id: int | None = None) -> list[NoteSummary]:
+    """Notes on one Board, or every note when board_id is None."""
     conn = get_connection()
     try:
+        where = "WHERE board_id = ?" if board_id is not None else ""
+        params = (board_id,) if board_id is not None else ()
         rows = conn.execute(
             """
             SELECT id, title, source, created_at, x, y, z, color, kind, pinned,
-                   extract_status, study_id, claim_id,
+                   extract_status, study_id, claim_id, board_id,
                    (SELECT title FROM studies WHERE studies.id = notes.study_id) AS study_title
             FROM notes
+            {where}
             ORDER BY datetime(created_at) DESC, id DESC
-            """
+            """.format(where=where),
+            params,
         ).fetchall()
         return [NoteSummary.model_validate(_summary_fields(row)) for row in rows]
     finally:
@@ -740,7 +806,7 @@ def get_note(note_id: int) -> NoteDetail | None:
         note_row = conn.execute(
             """
             SELECT id, title, source, raw_text, created_at,
-                   x, y, z, color, kind, pinned, ink_json, extract_status, study_id, claim_id,
+                   x, y, z, color, kind, pinned, ink_json, extract_status, study_id, claim_id, board_id,
                    (SELECT title FROM studies WHERE studies.id = notes.study_id) AS study_title
             FROM notes
             WHERE id = ?
@@ -773,6 +839,7 @@ def _summary_fields(row: sqlite3.Row) -> dict[str, object]:
         "study_id": row["study_id"],
         "claim_id": row["claim_id"],
         "study_title": row["study_title"],
+        "board_id": row["board_id"],
     }
 
 
@@ -865,10 +932,14 @@ def delete_note(note_id: int) -> bool:
 def create_connection(payload: ConnectionCreate) -> Connection:
     if payload.from_note_id == payload.to_note_id:
         raise ValueError("cannot connect a note to itself")
-    if get_note(payload.from_note_id) is None:
+    source = get_note(payload.from_note_id)
+    if source is None:
         raise KeyError(payload.from_note_id)
-    if get_note(payload.to_note_id) is None:
+    target = get_note(payload.to_note_id)
+    if target is None:
         raise KeyError(payload.to_note_id)
+    if source.board_id != target.board_id:
+        raise ValueError("Strings can't cross Boards")
     created_at = datetime.now(timezone.utc).isoformat()
     conn = get_connection()
     try:
@@ -909,16 +980,29 @@ def get_connection_by_id(connection_id: int) -> Connection | None:
         conn.close()
 
 
-def list_connections() -> list[Connection]:
+def list_connections(board_id: int | None = None) -> list[Connection]:
+    """Strings on one Board, or every String when board_id is None."""
     conn = get_connection()
     try:
-        rows = conn.execute(
-            """
-            SELECT id, from_note_id, to_note_id, kind, created_at
-            FROM connections
-            ORDER BY id ASC
-            """
-        ).fetchall()
+        if board_id is None:
+            rows = conn.execute(
+                """
+                SELECT id, from_note_id, to_note_id, kind, created_at
+                FROM connections
+                ORDER BY id ASC
+                """
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT c.id, c.from_note_id, c.to_note_id, c.kind, c.created_at
+                FROM connections c
+                JOIN notes n ON n.id = c.from_note_id
+                WHERE n.board_id = ?
+                ORDER BY c.id ASC
+                """,
+                (board_id,),
+            ).fetchall()
         return [Connection.model_validate(dict(row)) for row in rows]
     finally:
         conn.close()
@@ -1139,23 +1223,33 @@ def replace_note_chunks(
 
 
 def search_chunk_rows(
-    query_blob: bytes, k: int, note_ids: Sequence[int] | None = None
+    query_blob: bytes,
+    k: int,
+    note_ids: Sequence[int] | None = None,
+    board_id: int | None = None,
 ) -> list[dict[str, object]]:
-    """KNN over chunk_vec. With note_ids, sqlite-vec filters to their chunks before top-k."""
+    """KNN over chunk_vec. note_ids / board_id filter chunks inside sqlite-vec, before top-k."""
     conn = get_connection()
     try:
-        if note_ids:
-            placeholders = ", ".join("?" for _ in note_ids)
+        if note_ids or board_id is not None:
+            clauses: list[str] = []
+            params: list[object] = []
+            if note_ids:
+                clauses.append(f"note_id IN ({', '.join('?' for _ in note_ids)})")
+                params.extend(note_ids)
+            if board_id is not None:
+                clauses.append("note_id IN (SELECT id FROM notes WHERE board_id = ?)")
+                params.append(board_id)
             matches = conn.execute(
                 f"""
                 SELECT rowid, distance
                 FROM chunk_vec
                 WHERE embedding MATCH ?
                   AND k = ?
-                  AND rowid IN (SELECT id FROM chunks WHERE note_id IN ({placeholders}))
+                  AND rowid IN (SELECT id FROM chunks WHERE {' AND '.join(clauses)})
                 ORDER BY distance
                 """,
-                (query_blob, k, *note_ids),
+                (query_blob, k, *params),
             ).fetchall()
         else:
             matches = conn.execute(
@@ -1192,3 +1286,185 @@ def search_chunk_rows(
         return hits
     finally:
         conn.close()
+
+
+# --- Boards -----------------------------------------------------------------
+
+
+def _board(row: sqlite3.Row) -> Board:
+    return Board.model_validate(dict(row))
+
+
+_BOARD_SELECT = """
+    SELECT b.id, b.name, b.slug, b.description, b.created_at, b.last_opened_at,
+           (SELECT COUNT(*) FROM notes n WHERE n.board_id = b.id) AS note_count,
+           (SELECT COUNT(*) FROM file_folders f WHERE f.board_id = b.id) AS folder_count
+    FROM boards b
+"""
+
+
+def list_boards() -> list[Board]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(_BOARD_SELECT + " ORDER BY b.id ASC").fetchall()
+        return [_board(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def get_board(board_id: int) -> Board | None:
+    conn = get_connection()
+    try:
+        row = conn.execute(_BOARD_SELECT + " WHERE b.id = ?", (board_id,)).fetchone()
+        return _board(row) if row is not None else None
+    finally:
+        conn.close()
+
+
+def default_board_id() -> int:
+    """The last-opened Board: where notes land when no Board is named (e.g. Send to board)."""
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT id FROM boards
+            ORDER BY last_opened_at IS NULL, last_opened_at DESC, id ASC
+            LIMIT 1
+            """
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("no Board exists")
+        return int(row["id"])
+    finally:
+        conn.close()
+
+
+def _unique_slug(conn: sqlite3.Connection, name: str, board_id: int | None = None) -> str:
+    base = board_slug(name)
+    slug = base
+    suffix = 2
+    while True:
+        row = conn.execute("SELECT id FROM boards WHERE slug = ?", (slug,)).fetchone()
+        if row is None or int(row["id"]) == board_id:
+            return slug
+        slug = f"{base}-{suffix}"
+        suffix += 1
+
+
+def _clean_description(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def create_board(payload: BoardCreate) -> Board:
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            """
+            INSERT INTO boards (name, slug, description, created_at, last_opened_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (payload.name, _unique_slug(conn, payload.name), _clean_description(payload.description), now, now),
+        )
+        conn.commit()
+        board_id = int(cursor.lastrowid)
+    except sqlite3.IntegrityError as exc:
+        raise ValueError("That name's already taken. Try another.") from exc
+    finally:
+        conn.close()
+    board = get_board(board_id)
+    if board is None:
+        raise RuntimeError("board insert succeeded but row was not readable")
+    return board
+
+
+def patch_board(board_id: int, patch: BoardPatch) -> Board | None:
+    if get_board(board_id) is None:
+        return None
+    updates = patch.model_dump(exclude_unset=True)
+    conn = get_connection()
+    try:
+        if updates.get("name") is not None:
+            conn.execute(
+                "UPDATE boards SET name = ?, slug = ? WHERE id = ?",
+                (updates["name"], _unique_slug(conn, updates["name"], board_id), board_id),
+            )
+        if "description" in updates:
+            conn.execute(
+                "UPDATE boards SET description = ? WHERE id = ?",
+                (_clean_description(updates["description"]), board_id),
+            )
+        conn.commit()
+    except sqlite3.IntegrityError as exc:
+        raise ValueError("That name's already taken. Try another.") from exc
+    finally:
+        conn.close()
+    return get_board(board_id)
+
+
+def open_board(board_id: int) -> Board | None:
+    """Mark a Board as last opened, so it is the default next time."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE boards SET last_opened_at = ? WHERE id = ?",
+            (datetime.now(timezone.utc).isoformat(), board_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return get_board(board_id)
+
+
+def board_folder_ids(board_id: int) -> list[int]:
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT id FROM file_folders WHERE board_id = ?", (board_id,)).fetchall()
+        return [int(row["id"]) for row in rows]
+    finally:
+        conn.close()
+
+
+def delete_board_row(board_id: int) -> None:
+    """Delete the Board's notes and the Board itself. Callers remove its Files folders first."""
+    conn = get_connection()
+    try:
+        count = int(conn.execute("SELECT COUNT(*) FROM boards").fetchone()[0])
+        if count <= 1:
+            raise ValueError("You can't delete your last Board.")
+    finally:
+        conn.close()
+    for summary in list_notes(board_id):
+        delete_note(summary.id)
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM boards WHERE id = ?", (board_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def move_note(note_id: int, board_id: int) -> NoteDetail | None:
+    """Move a note to another Board. Strings to notes left behind are cut (ADR 0002)."""
+    if get_note(note_id) is None:
+        return None
+    if get_board(board_id) is None:
+        raise KeyError(board_id)
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE notes SET board_id = ? WHERE id = ?", (board_id, note_id))
+        conn.execute(
+            """
+            DELETE FROM connections
+            WHERE (from_note_id = :id AND to_note_id IN (SELECT id FROM notes WHERE board_id != :board))
+               OR (to_note_id = :id AND from_note_id IN (SELECT id FROM notes WHERE board_id != :board))
+            """,
+            {"id": note_id, "board": board_id},
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return get_note(note_id)

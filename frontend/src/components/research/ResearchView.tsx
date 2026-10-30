@@ -5,11 +5,13 @@ import {
   deleteClaim,
   editClaim,
   fetchApiStatus,
+  fetchBoards,
   fetchStudies,
   fetchStudy,
   keepClaim,
   dismissLead,
   markParent,
+  moveNote,
   reextractAll,
   reextractPaper,
   refreshLeads,
@@ -25,6 +27,7 @@ import {
 import type { ColorMode } from "@xyflow/react";
 import type {
   ApiStatus,
+  Board,
   Claim,
   LeadItem,
   ParentMark,
@@ -408,15 +411,34 @@ export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProp
     }
   }, [loadStudies, loadDetail]);
 
+  const [boards, setBoards] = useState<Board[]>([]);
+  useEffect(() => {
+    void fetchBoards()
+      .then(setBoards)
+      .catch(() => setBoards([]));
+  }, []);
+
   const onSendClaim = useCallback(
-    async (claimId: number) => {
+    async (claimId: number, boardId: number) => {
       try {
-        setDetail(await sendClaimToBoard(claimId, loadBoardCentre()));
+        setDetail(await sendClaimToBoard(claimId, loadBoardCentre(), boardId));
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
     },
     [],
+  );
+
+  const onMoveClaimNote = useCallback(
+    async (noteId: number, boardId: number) => {
+      try {
+        await moveNote(noteId, boardId);
+        await loadDetail();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [loadDetail],
   );
 
   const onDismissLead = useCallback(
@@ -702,6 +724,8 @@ export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProp
                   onKeep={onKeepClaim}
                   onAddLimitation={onAddLimitation}
                   onSend={onSendClaim}
+                  onMove={onMoveClaimNote}
+                  boards={boards}
                   onReextract={() => void onReextract()}
                   onOpenNote={onOpenNote}
                   highlightClaimId={highlightClaimId}
@@ -789,7 +813,9 @@ type PaperExtractionProps = {
   onDelete: (id: number) => Promise<void>;
   onKeep: (id: number) => Promise<void>;
   onAddLimitation: (text: string) => Promise<void>;
-  onSend: (id: number) => Promise<void>;
+  onSend: (id: number, boardId: number) => Promise<void>;
+  onMove: (noteId: number, boardId: number) => Promise<void>;
+  boards: Board[];
   onReextract: () => void;
   onOpenNote: (noteId: number) => void;
   highlightClaimId: number | null;
@@ -815,6 +841,8 @@ function PaperExtraction({
   onKeep,
   onAddLimitation,
   onSend,
+  onMove,
+  boards,
   onReextract,
   onOpenNote,
   highlightClaimId,
@@ -852,6 +880,8 @@ function PaperExtraction({
             onDelete={onDelete}
             onKeep={onKeep}
             onSend={onSend}
+            onMove={onMove}
+            boards={boards}
             onOpenNote={onOpenNote}
             highlighted={claim.id === highlightClaimId}
           />

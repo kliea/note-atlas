@@ -263,15 +263,19 @@ def send_claim_to_board(claim_id: int, payload: SendToBoard, background: Backgro
     title, body = research_store.board_note_text(claim, study)
     centre = (payload.x, payload.y) if payload.x is not None and payload.y is not None else None
     position = research_store.board_position(int(study["id"]), centre)
-    note = create_note(
-        NoteCreate(
-            title=title,
-            source="paper",
-            raw_text=body,
-            x=position[0] if position else None,
-            y=position[1] if position else None,
+    try:
+        note = create_note(
+            NoteCreate(
+                title=title,
+                source="paper",
+                raw_text=body,
+                x=position[0] if position else None,
+                y=position[1] if position else None,
+                board_id=payload.board_id,
+            )
         )
-    )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="board not found") from None
     try:
         research_store.link_board_note(note.id, int(study["id"]), claim_id)
     except Exception:

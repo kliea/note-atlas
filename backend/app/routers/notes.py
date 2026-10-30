@@ -16,6 +16,7 @@ from app.db import (
     delete_note,
     get_note,
     list_notes,
+    move_note,
     patch_note,
     replace_note_extraction,
     set_extract_status,
@@ -30,6 +31,7 @@ from app.models import (
     NoteBundle,
     NoteCreate,
     NoteDetail,
+    NoteMove,
     NotePatch,
     NoteSummary,
 )
@@ -40,7 +42,10 @@ router = APIRouter(prefix="/notes", tags=["notes"])
 
 @router.post("", response_model=NoteDetail, status_code=201)
 def post_note(payload: NoteCreate, background: BackgroundTasks) -> NoteDetail:
-    created = create_note(payload)
+    try:
+        created = create_note(payload)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="board not found") from None
     # Always add to the corpus first; ask answers skip topic extraction.
     ingest_note(background, created.id, extract=payload.source != "ask")
     pending = get_note(created.id)
@@ -50,12 +55,12 @@ def post_note(payload: NoteCreate, background: BackgroundTasks) -> NoteDetail:
 
 
 @router.get("", response_model=list[NoteSummary])
-def get_notes() -> list[NoteSummary]:
-    return list_notes()
+def get_notes(board_id: int | None = None) -> list[NoteSummary]:
+    return list_notes(board_id)
 
 
 @router.post("/import", response_model=NoteDetail, status_code=201)
-def post_import(payload: dict[str, Any]) -> NoteDetail:
+def post_import(payload: dict[str, Any], board_id: int | None = None) -> NoteDetail:
     try:
         if payload.get("format") == "markdown":
             markdown = MarkdownImport.model_validate(payload)
@@ -70,6 +75,7 @@ def post_import(payload: dict[str, Any]) -> NoteDetail:
             title=bundle.note.title,
             source=bundle.note.source,
             raw_text=bundle.note.raw_text,
+            board_id=board_id,
         )
     )
     if topics:
@@ -187,7 +193,20 @@ def extract_note(note_id: int, background: BackgroundTasks) -> NoteDetail:
     return finished
 
 
+@router.post("/{note_id}/move", response_model=NoteDetail)
+def post_move_note(note_id: int, payload: NoteMove) -> NoteDetail:
+    """Move a note to another Board; Strings to notes left behind are cut."""
+    try:
+        moved = move_note(note_id, payload.board_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="board not found") from None
+    if moved is None:
+        raise HTTPException(status_code=404, detail="note not found")
+    return moved
+
+
 def _slug(title: str) -> str:
     cleaned = "".join(ch.lower() if ch.isalnum() else "-" for ch in title).strip("-")
     collapsed = "-".join(part for part in cleaned.split("-") if part)
     return collapsed[:48] or "note"
+

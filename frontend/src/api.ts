@@ -9,6 +9,9 @@ import type {
   HealthResponse,
   LinkSuggestion,
   LlmPingResponse,
+  Board,
+  BoardCreate,
+  BoardPatch,
   NoteCreate,
   NoteDetail,
   NotePatch,
@@ -65,8 +68,52 @@ export function fetchLlmPing(): Promise<LlmPingResponse> {
   return requestJson<LlmPingResponse>("/llm/ping");
 }
 
+// The Board the canvas is showing. Note, String, import, and Ask calls are scoped to it,
+// so the canvas code never has to thread a Board id through every call.
+let activeBoardId: number | null = null;
+
+export function setActiveBoard(id: number | null): void {
+  activeBoardId = id;
+}
+
+function boardQuery(): string {
+  return activeBoardId === null ? "" : `?board_id=${activeBoardId}`;
+}
+
+export function fetchBoards(): Promise<Board[]> {
+  return requestJson<Board[]>("/boards");
+}
+
+export function createBoard(payload: BoardCreate): Promise<Board> {
+  return requestJson<Board>("/boards", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function patchBoard(id: number, payload: BoardPatch): Promise<Board> {
+  return requestJson<Board>(`/boards/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function openBoard(id: number): Promise<Board> {
+  return requestJson<Board>(`/boards/${id}/open`, { method: "POST" });
+}
+
+export async function deleteBoard(id: number): Promise<void> {
+  const response = await fetch(`${API_BASE}/boards/${id}`, { method: "DELETE" });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { detail?: unknown } | null;
+    throw new Error(body?.detail ? String(body.detail) : `delete board failed: ${response.status}`);
+  }
+}
+
 export function fetchNotes(): Promise<NoteSummary[]> {
-  return requestJson<NoteSummary[]>("/notes");
+  return requestJson<NoteSummary[]>(`/notes${boardQuery()}`);
 }
 
 export function fetchNote(id: number): Promise<NoteDetail> {
@@ -81,7 +128,7 @@ export function createNote(payload: NoteCreate): Promise<NoteDetail> {
   return requestJson<NoteDetail>("/notes", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(activeBoardId === null ? payload : { ...payload, board_id: activeBoardId }),
   });
 }
 
@@ -109,7 +156,7 @@ export async function deleteNote(id: number): Promise<void> {
 }
 
 export function fetchConnections(): Promise<Connection[]> {
-  return requestJson<Connection[]>("/connections");
+  return requestJson<Connection[]>(`/connections${boardQuery()}`);
 }
 
 export function createConnection(payload: ConnectionCreate): Promise<Connection> {
@@ -159,7 +206,7 @@ export async function importNoteFile(file: File): Promise<NoteDetail> {
   } else {
     payload = JSON.parse(text) as unknown;
   }
-  return requestJson<NoteDetail>("/notes/import", {
+  return requestJson<NoteDetail>(`/notes/import${boardQuery()}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -280,7 +327,10 @@ export async function streamAsk(
   signal?: AbortSignal,
   noteIds?: number[],
 ): Promise<void> {
-  const payload: { question: string; note_ids?: number[] } = { question };
+  const payload: { question: string; note_ids?: number[]; board_id?: number } = { question };
+  if (activeBoardId !== null) {
+    payload.board_id = activeBoardId;
+  }
   if (noteIds && noteIds.length > 0) {
     payload.note_ids = noteIds;
   }
@@ -416,11 +466,21 @@ export function refreshLeads(paperId: number): Promise<StudyDetail> {
 export function sendClaimToBoard(
   claimId: number,
   centre: { x: number; y: number } | null,
+  boardId: number | null = null,
 ): Promise<StudyDetail> {
   return requestJson<StudyDetail>(`/research/claims/${claimId}/send`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(centre ?? {}),
+    body: JSON.stringify({ ...(centre ?? {}), ...(boardId === null ? {} : { board_id: boardId }) }),
+  });
+}
+
+// Strings to notes left behind on the old Board are cut.
+export function moveNote(noteId: number, boardId: number): Promise<NoteDetail> {
+  return requestJson<NoteDetail>(`/notes/${noteId}/move`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ board_id: boardId }),
   });
 }
 

@@ -492,13 +492,14 @@ def _claim(row: sqlite3.Row) -> Claim:
         original_text=row["original_text"],
         stale=bool(row["stale"]),
         sent_note_id=row["sent_note_id"],
+        sent_board_id=row["sent_board_id"],
     )
 
 
 def _claims(conn: sqlite3.Connection, study_id: int) -> list[Claim]:
     rows = conn.execute(
         """
-        SELECT * FROM claims WHERE study_id = ? AND deleted = 0
+        SELECT *, (SELECT board_id FROM notes WHERE notes.id = claims.sent_note_id) AS sent_board_id FROM claims WHERE study_id = ? AND deleted = 0
         ORDER BY kind, author DESC, order_idx, id
         """,
         (study_id,),
@@ -641,7 +642,7 @@ def add_reader_claim(study_id: int, kind: str, text: str) -> Claim | None:
             (study_id, kind, text.strip(), order + 1),
         )
         conn.commit()
-        row = conn.execute("SELECT * FROM claims WHERE id = ?", (int(cursor.lastrowid),)).fetchone()
+        row = conn.execute("SELECT *, (SELECT board_id FROM notes WHERE notes.id = claims.sent_note_id) AS sent_board_id FROM claims WHERE id = ?", (int(cursor.lastrowid),)).fetchone()
         return _claim(row)
     finally:
         conn.close()
@@ -652,7 +653,7 @@ def edit_claim(claim_id: int, text: str) -> Claim | None:
     conn = get_connection()
     try:
         row = conn.execute(
-            "SELECT * FROM claims WHERE id = ? AND deleted = 0", (claim_id,)
+            "SELECT *, (SELECT board_id FROM notes WHERE notes.id = claims.sent_note_id) AS sent_board_id FROM claims WHERE id = ? AND deleted = 0", (claim_id,)
         ).fetchone()
         if row is None:
             return None
@@ -667,7 +668,7 @@ def edit_claim(claim_id: int, text: str) -> Claim | None:
                 (new_text, row["text"], claim_id),
             )
             conn.commit()
-        return _claim(conn.execute("SELECT * FROM claims WHERE id = ?", (claim_id,)).fetchone())
+        return _claim(conn.execute("SELECT *, (SELECT board_id FROM notes WHERE notes.id = claims.sent_note_id) AS sent_board_id FROM claims WHERE id = ?", (claim_id,)).fetchone())
     finally:
         conn.close()
 
@@ -680,7 +681,7 @@ def keep_claim(claim_id: int) -> Claim | None:
         if cursor.rowcount == 0:
             return None
         conn.commit()
-        return _claim(conn.execute("SELECT * FROM claims WHERE id = ?", (claim_id,)).fetchone())
+        return _claim(conn.execute("SELECT *, (SELECT board_id FROM notes WHERE notes.id = claims.sent_note_id) AS sent_board_id FROM claims WHERE id = ?", (claim_id,)).fetchone())
     finally:
         conn.close()
 
@@ -1451,7 +1452,7 @@ def claim_for_board(claim_id: int) -> tuple[sqlite3.Row, sqlite3.Row] | None:
     """(Claim, its Paper) for a live Claim, else None."""
     conn = get_connection()
     try:
-        claim = conn.execute("SELECT * FROM claims WHERE id = ? AND deleted = 0", (claim_id,)).fetchone()
+        claim = conn.execute("SELECT *, (SELECT board_id FROM notes WHERE notes.id = claims.sent_note_id) AS sent_board_id FROM claims WHERE id = ? AND deleted = 0", (claim_id,)).fetchone()
         if claim is None:
             return None
         study = conn.execute("SELECT * FROM studies WHERE id = ?", (claim["study_id"],)).fetchone()
