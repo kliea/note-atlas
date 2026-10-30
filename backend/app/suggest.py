@@ -30,7 +30,7 @@ def _embedding_suggestions(
     if total == 0:
         return []
     try:
-        hits = search(note_summary_text(note), k=min(_SEARCH_K, total))
+        hits = search(note_summary_text(note), k=min(_SEARCH_K, total), board_id=note.board_id)
     except Exception:  # noqa: BLE001
         return []
     best: dict[int, float] = {}
@@ -63,7 +63,7 @@ def _tag_suggestions(note: NoteDetail, connected: set[int]) -> list[LinkSuggesti
     if not tags:
         return []
     scored: list[LinkSuggestion] = []
-    for summary in list_notes():
+    for summary in list_notes(note.board_id):
         if summary.id == note.id or summary.id in connected:
             continue
         other = get_note(summary.id)

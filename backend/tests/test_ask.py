@@ -44,7 +44,7 @@ def test_ask_streams_grounded_sse(
             )
         ],
     )
-    monkeypatch.setattr("app.routers.ask.plan_ask", lambda question, k=5, note_ids=None: plan)
+    monkeypatch.setattr("app.routers.ask.plan_ask", lambda question, k=5, note_ids=None, board_id=None: plan)
 
     def fake_stream(_plan: AskPlan) -> Iterator[str]:
         yield "High "
@@ -71,7 +71,9 @@ def test_ask_forwards_note_ids(
     client = _client(tmp_path, monkeypatch)
     seen: dict[str, object] = {}
 
-    def fake_plan(question: str, k: int = 5, note_ids: list[int] | None = None) -> AskPlan:
+    def fake_plan(
+        question: str, k: int = 5, note_ids: list[int] | None = None, board_id: int | None = None
+    ) -> AskPlan:
         seen["question"] = question
         seen["k"] = k
         seen["note_ids"] = note_ids
@@ -94,7 +96,7 @@ def test_ask_streams_decline_when_ungrounded(
     client = _client(tmp_path, monkeypatch)
     monkeypatch.setattr(
         "app.routers.ask.plan_ask",
-        lambda question, k=5, note_ids=None: AskPlan(
+        lambda question, k=5, note_ids=None, board_id=None: AskPlan(
             question=question, grounded=False, citations=[], context_hits=[]
         ),
     )

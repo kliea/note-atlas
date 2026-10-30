@@ -104,3 +104,21 @@ def test_edits_never_cross_and_deleting_the_note_allows_sending_again(client: Te
 
 def test_unknown_claim_is_404(client: TestClient) -> None:
     assert client.post("/research/claims/9999/send", json={}).status_code == 404
+
+
+def test_claim_goes_to_the_chosen_board_and_can_move(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.ambient.run_extraction_job", lambda _note_id: None)
+    general = client.get("/boards").json()[0]["id"]
+    thesis = client.post("/boards", json={"name": "Thesis"}).json()["id"]
+    claim = _claim(_paper(client), "contribution")
+
+    sent = _claim(client.post(f"/research/claims/{claim['id']}/send", json={"board_id": thesis}).json(), "contribution")
+    assert sent["sent_board_id"] == thesis
+
+    client.post(f"/notes/{sent['sent_note_id']}/move", json={"board_id": general})
+    paper = client.get(f"/research/studies/{_claim_study(client, sent)}").json()
+    assert _claim(paper, "contribution")["sent_board_id"] == general
+
+
+def _claim_study(client: TestClient, claim: dict[str, Any]) -> int:
+    return int(client.get(f"/notes/{claim['sent_note_id']}").json()["study_id"])

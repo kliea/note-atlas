@@ -11,8 +11,8 @@ router = APIRouter(prefix="/connections", tags=["connections"])
 
 
 @router.get("", response_model=list[Connection])
-def get_connections() -> list[Connection]:
-    return list_connections()
+def get_connections(board_id: int | None = None) -> list[Connection]:
+    return list_connections(board_id)
 
 
 @router.post("", response_model=Connection, status_code=201)

@@ -24,6 +24,7 @@ export type NoteCreate = {
   raw_text: string;
   x?: number;
   y?: number;
+  board_id?: number;
 };
 
 export type NoteSummary = {
@@ -42,6 +43,7 @@ export type NoteSummary = {
   study_id: number | null;
   claim_id: number | null;
   study_title: string | null;
+  board_id: number | null;
 };
 
 export type NotePatch = {
@@ -255,6 +257,7 @@ export type Claim = {
   original_text: string | null;
   stale: boolean;
   sent_note_id: number | null;
+  sent_board_id: number | null;
 };
 
 export type StudyDetail = StudySummary & {
@@ -278,4 +281,25 @@ export type StudyDetail = StudySummary & {
   leads_after: string | null;
   leads_api_off: boolean;
   references: ReferenceItem[];
+};
+
+export type Board = {
+  id: number;
+  name: string;
+  slug: string;
+  description: string | null;
+  created_at: string;
+  last_opened_at: string | null;
+  note_count: number;
+  folder_count: number;
+};
+
+export type BoardCreate = {
+  name: string;
+  description?: string | null;
+};
+
+export type BoardPatch = {
+  name?: string;
+  description?: string | null;
 };

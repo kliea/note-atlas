@@ -51,6 +51,7 @@ def test_create_list_and_reopen_note(
         "study_id",
         "claim_id",
         "study_title",
+        "board_id",
     }
     assert (body["study_id"], body["claim_id"], body["study_title"]) == (None, None, None)
     assert body["extract_status"] == "pending"
@@ -81,6 +82,7 @@ def test_create_list_and_reopen_note(
         "study_id",
         "claim_id",
         "study_title",
+        "board_id",
     }
 
     reopened = client.get(f"/notes/{body['id']}")
