@@ -2,6 +2,12 @@
 
 Local-first spatial notebook. Capture a thought on the canvas; on save a local LLM extracts topics and suggests context for terse points, keeping your wording as written, and related notes offer a faint string you can accept. Ask with a lasso. Nothing leaves localhost except the optional first-time download of embedding weights into the sentence-transformers cache.
 
+## Video explainer
+
+[![Note Atlas: local RAG explainer (3:55)](docs/video/note-atlas-explainer-poster.jpg)](docs/video/note-atlas-explainer.mp4)
+
+A 3:55 walkthrough covering why Atlas keeps RAG local, how Boards, Files and the Research Track work, how each uploaded paper is parsed, extracted, quote-checked and placed in its lineage, and the optional Claude MCP bridge. English captions are in [`note-atlas-explainer.srt`](docs/video/note-atlas-explainer.srt). The video is generated entirely from code, and [`docs/video/`](docs/video/README.md) has the script and the steps to rebuild it.
+
 ## Interaction model
 
 The app opens on the **board**. There is no Capture / Repository / Map / Ask chrome.

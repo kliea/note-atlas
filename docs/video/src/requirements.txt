@@ -1,0 +1,5 @@
+skia-python==144.1
+kokoro-onnx
+soundfile
+numpy
+scipy
