@@ -34,6 +34,8 @@ mcp = MCPServer(
     instructions=(
         "Note Atlas is the user's local knowledge base. Notes live on Boards, one domain "
         "of knowledge each. Start with list_boards, then scope search and ask to a Board. "
+        "The Research Track holds the user's academic Papers (list_studies, get_study, "
+        "research_ask); cite Papers by title and year. "
         "Cite notes by title. Only call create_note when the user asks you to add a note."
     ),
 )
@@ -150,9 +152,14 @@ def ask(
     board: a Board's name, slug or id. note_ids: limit to these notes.
     """
     body = {"question": question, "k": max(1, min(k, 20)), "board_id": _board_id(board), "note_ids": note_ids}
+    return _stream_answer("/ask", body)
+
+
+def _stream_answer(path: str, body: dict[str, Any]) -> dict[str, Any]:
+    """Collect one of Atlas's server-sent Ask streams into a whole answer."""
     meta: dict[str, Any] = {}
     tokens: list[str] = []
-    with client.stream("POST", "/ask", json=body, timeout=ASK_TIMEOUT) as response:
+    with client.stream("POST", path, json=body, timeout=ASK_TIMEOUT) as response:
         if not response.is_success:
             response.read()
             _raise_for_status(response)
@@ -173,6 +180,76 @@ def ask(
         "grounded": meta.get("grounded"),
         "citations": meta.get("citations", []),
     }
+
+
+# Research Track: Studies are Papers (PDF uploaded and extracted) or Leads (metadata only).
+
+# Lineage lists can run to dozens of entries; get_study keeps the top of each.
+LINEAGE_LIMIT = 10
+
+
+def _pick(item: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
+    return {key: item.get(key) for key in keys}
+
+
+@mcp.tool(annotations=READ_ONLY)
+def list_studies(state: str = "paper", query: str = "") -> list[dict[str, Any]]:
+    """List Research Track Studies: Papers the user uploaded, or Leads Atlas suggests reading.
+
+    state: "paper" (default), "lead", or "all".
+    query: optional text to filter by title.
+    """
+    if state not in ("paper", "lead", "all"):
+        raise ValueError('state must be "paper", "lead" or "all"')
+    studies = _get("/research/studies", state=state, q=query or None)
+    return [_pick(study, ("id", "state", "title", "authors", "year", "venue", "doi")) for study in studies]
+
+
+@mcp.tool(annotations=READ_ONLY)
+def get_study(study_id: int, include_references: bool = False) -> dict[str, Any]:
+    """Read one Study: its Extraction (research question, method, key results, scope), its
+    Claims (contributions and limitations, with quotes), and its lineage (Parent Papers,
+    Siblings, Ancestors).
+
+    include_references: also return the Paper's full bibliography (can be long).
+    """
+    study = _get(f"/research/studies/{study_id}")
+    result = _pick(
+        study,
+        (
+            "id", "state", "title", "authors", "year", "venue", "doi", "arxiv_id", "oa_url",
+            "abstract", "research_question", "method", "key_results", "scope", "reference_count",
+        ),
+    )
+    result["claims"] = [
+        _pick(claim, ("id", "kind", "author", "text", "quote", "sent_note_id")) for claim in study["claims"]
+    ]
+    result["parents"] = [
+        _pick(item, ("study_id", "state", "title", "year", "reason"))
+        for item in study["parents"]
+        if item.get("is_parent")
+    ]
+    for kind in ("siblings", "ancestors"):
+        result[kind] = [
+            _pick(item, ("study_id", "state", "title", "year", "shared"))
+            for item in study[kind][:LINEAGE_LIMIT]
+        ]
+    if include_references:
+        result["references"] = [
+            _pick(item, ("study_id", "state", "title", "year", "doi", "mention_count"))
+            for item in study["references"]
+        ]
+    return result
+
+
+@mcp.tool(annotations=READ_ONLY)
+def research_ask(question: str, study_ids: list[int] | None = None) -> dict[str, Any]:
+    """Ask Atlas's Research Ask (local LLM) a question answered from Papers' Extractions and
+    Claims, with numbered citations to the Paper fields and Claims it used.
+
+    study_ids: limit to these Papers. Omit for the whole Library.
+    """
+    return _stream_answer("/research/ask", {"question": question, "study_ids": study_ids or None})
 
 
 @mcp.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=False))

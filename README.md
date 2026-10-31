@@ -137,7 +137,7 @@ The same pipeline has a Streamlit front end for the MSIT lab: see [`lab/README.m
 
 ## Use Atlas from Claude (MCP)
 
-`backend/mcp_server.py` lets Claude Code and Claude Desktop list your Boards, read and search notes, run Ask, and add notes, through the running backend. Setup and the Desktop config are in [`docs/claude-mcp.md`](docs/claude-mcp.md).
+`backend/mcp_server.py` lets Claude Code and Claude Desktop list your Boards, read and search notes, read Research Track Papers and their Claims, run Ask and Research Ask, and add notes, through the running backend. Setup and the Desktop config are in [`docs/claude-mcp.md`](docs/claude-mcp.md).
 
 ## Squash-merge notes (`refactor/nui-board` → `main`)
 

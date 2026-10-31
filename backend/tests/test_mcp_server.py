@@ -37,8 +37,12 @@ def _thesis(atlas: TestClient) -> int:
 
 def test_tools_are_registered_with_read_only_hints() -> None:
     tools = {tool.name: tool for tool in asyncio.run(mcp_server.mcp.list_tools())}
-    assert set(tools) == {"list_boards", "list_notes", "get_note", "search", "ask", "create_note"}
+    assert set(tools) == {
+        "list_boards", "list_notes", "get_note", "search", "ask", "create_note",
+        "list_studies", "get_study", "research_ask",
+    }
     assert tools["search"].annotations.read_only_hint is True
+    assert tools["get_study"].annotations.read_only_hint is True
     assert tools["create_note"].annotations.read_only_hint is False
 
 
@@ -106,3 +110,58 @@ def test_ask_surfaces_llm_errors(atlas: TestClient, monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr("app.routers.ask.plan_ask", broken)
     with pytest.raises(ValueError, match="Ollama is not running"):
         mcp_server.ask("anything")
+
+
+@pytest.fixture
+def paper(atlas: TestClient, monkeypatch: pytest.MonkeyPatch) -> dict:
+    from app import grobid, paper_extract, research_jobs
+    from tests.test_research import FIELDS, LIMITATION, TEI, _pdf_bytes
+
+    monkeypatch.setattr(grobid, "process_fulltext", lambda _pdf: TEI)
+    monkeypatch.setattr(paper_extract, "extract_fields", lambda *_: FIELDS)
+    monkeypatch.setattr(paper_extract, "extract_limitations", lambda *_: [LIMITATION])
+    files = [("files", ("p.pdf", _pdf_bytes(), "application/pdf"))]
+    paper_id = atlas.post("/research/papers", files=files).json()[0]["id"]
+    while research_jobs.process_next_job():
+        pass
+    return atlas.get(f"/research/studies/{paper_id}").json()
+
+
+def test_list_studies_shows_papers_and_rejects_bad_states(paper: dict) -> None:
+    papers = mcp_server.list_studies()
+    assert [(study["id"], study["title"]) for study in papers] == [(paper["id"], "Lost in the Middle")]
+    assert mcp_server.list_studies(query="nothing like this") == []
+    with pytest.raises(ValueError, match="state must be"):
+        mcp_server.list_studies(state="books")
+
+
+def test_get_study_returns_extraction_and_claims_without_references(paper: dict) -> None:
+    study = mcp_server.get_study(paper["id"])
+    assert study["title"] == "Lost in the Middle"
+    assert study["research_question"] == paper["research_question"]
+    assert {claim["kind"] for claim in study["claims"]} == {"contribution", "limitation"}
+    assert "references" not in study
+    assert "job" not in study
+
+    full = mcp_server.get_study(paper["id"], include_references=True)
+    assert len(full["references"]) == len(paper["references"])
+
+
+def test_get_study_names_a_missing_study(atlas: TestClient) -> None:
+    with pytest.raises(ValueError, match="404"):
+        mcp_server.get_study(999)
+
+
+def test_research_ask_collects_the_streamed_answer(atlas: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_plan(question: str, study_ids: list[int] | None = None) -> SimpleNamespace:
+        seen["study_ids"] = study_ids
+        return SimpleNamespace(grounded=True, citations=[])
+
+    monkeypatch.setattr("app.research_ask.plan_ask", fake_plan)
+    monkeypatch.setattr("app.research_ask.stream_answer", lambda _plan: iter(["Mid-context ", "drops."]))
+
+    result = mcp_server.research_ask("What gets lost?", study_ids=[7])
+    assert result == {"answer": "Mid-context drops.", "grounded": True, "citations": []}
+    assert seen["study_ids"] == [7]
