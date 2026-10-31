@@ -1,0 +1,235 @@
+1
+00:00:00,250 --> 00:00:06,223
+Note Atlas: a local-first research workspace, built on retrieval-augmented generation.
+
+2
+00:00:07,017 --> 00:00:11,283
+Commercial language models process every prompt on remote servers.
+
+3
+00:00:11,283 --> 00:00:16,519
+Research notes and unpublished papers leave the device, where they may be logged,
+
+4
+00:00:16,519 --> 00:00:17,811
+retained, or leaked.
+
+5
+00:00:18,617 --> 00:00:22,360
+Retrieval-augmented generation changes how a model answers.
+
+6
+00:00:22,360 --> 00:00:25,912
+Instead of relying on what it memorised during training,
+
+7
+00:00:25,912 --> 00:00:30,416
+the model is handed the most relevant passages from your own documents,
+
+8
+00:00:30,416 --> 00:00:33,081
+and must answer from them, with citations.
+
+9
+00:00:33,883 --> 00:00:37,499
+Note Atlas keeps the entire pipeline on one machine.
+
+10
+00:00:37,499 --> 00:00:42,575
+Backend, vector stores, and the Ollama model server all run on localhost,
+
+11
+00:00:42,575 --> 00:00:46,747
+across three modules: Boards, Files, and the Research Track.
+
+12
+00:00:47,550 --> 00:00:50,510
+On a Board, each note is a card on a canvas.
+
+13
+00:00:50,510 --> 00:00:55,823
+A local model extracts its topics, embeddings suggest related notes as strings,
+
+14
+00:00:55,823 --> 00:00:59,859
+and a lasso-scoped Ask answers only from the selected notes.
+
+15
+00:01:00,650 --> 00:01:06,631
+Board Ask retrieves note chunks by semantic similarity, and boosts exact keyword matches.
+
+16
+00:01:06,631 --> 00:01:10,596
+When nothing scores above the threshold, it does not guess.
+
+17
+00:01:10,596 --> 00:01:11,402
+It declines.
+
+18
+00:01:12,217 --> 00:01:14,455
+Files is a classic RAG pipeline.
+
+19
+00:01:14,455 --> 00:01:20,122
+Documents are split into five-hundred-character chunks, embedded into ChromaDB,
+
+20
+00:01:20,122 --> 00:01:24,739
+and the three nearest chunks ground a Phi-3 answer, cited by page.
+
+21
+00:01:25,550 --> 00:01:29,870
+Each enhancement can be switched on independently: Word documents,
+
+22
+00:01:29,870 --> 00:01:35,302
+keyword search fused with vector search, conversational memory, and a model picker.
+
+23
+00:01:35,302 --> 00:01:39,033
+The same pipeline also powers a Streamlit laboratory app.
+
+24
+00:01:39,817 --> 00:01:41,931
+The Research Track goes further.
+
+25
+00:01:41,931 --> 00:01:45,961
+Every uploaded paper enters a resumable, four-step job queue.
+
+26
+00:01:46,750 --> 00:01:47,932
+Step one: parse.
+
+27
+00:01:47,932 --> 00:01:53,839
+A local GROBID service converts the PDF into structured XML: metadata, sections,
+
+28
+00:01:53,839 --> 00:01:57,310
+and every reference, which is stored as a lead.
+
+29
+00:01:58,117 --> 00:01:59,320
+Step two: extract.
+
+30
+00:01:59,320 --> 00:02:04,266
+The local model records the research question, method, key results, scope,
+
+31
+00:02:04,266 --> 00:02:07,141
+and each contribution, as a separate claim.
+
+32
+00:02:07,950 --> 00:02:09,557
+Step three: limitations.
+
+33
+00:02:09,557 --> 00:02:12,502
+Each limitation must carry a verbatim quote.
+
+34
+00:02:12,502 --> 00:02:15,849
+It is kept only if that quote exists in the paper,
+
+35
+00:02:15,849 --> 00:02:19,129
+and a second check confirms it admits a weakness.
+
+36
+00:02:19,917 --> 00:02:21,133
+Step four: lineage.
+
+37
+00:02:21,133 --> 00:02:24,077
+References are ranked by where they are cited,
+
+38
+00:02:24,077 --> 00:02:27,597
+and the model scores how much the paper builds on each.
+
+39
+00:02:27,597 --> 00:02:32,013
+The strongest become parent papers, revealing siblings and ancestors.
+
+40
+00:02:32,817 --> 00:02:36,262
+Completed extractions are indexed for Research Ask.
+
+41
+00:02:36,262 --> 00:02:39,707
+It searches fields and claims, never the full text,
+
+42
+00:02:39,707 --> 00:02:43,355
+and every citation names the exact claim it came from.
+
+43
+00:02:44,150 --> 00:02:48,220
+Optional scholarly lookups enrich the library with metadata.
+
+44
+00:02:48,220 --> 00:02:53,579
+They send only titles and identifiers, never the text, and can be switched off.
+
+45
+00:02:54,383 --> 00:02:57,857
+Note Atlas also speaks the Model Context Protocol.
+
+46
+00:02:57,857 --> 00:03:03,622
+A small local server bridges Claude Code and Claude Desktop to the running backend,
+
+47
+00:03:03,622 --> 00:03:05,775
+over standard input and output.
+
+48
+00:03:06,583 --> 00:03:12,416
+It exposes nine tools: boards and notes, semantic search, Atlas's own grounded Ask,
+
+49
+00:03:12,416 --> 00:03:15,157
+the research library, and Research Ask.
+
+50
+00:03:15,157 --> 00:03:18,530
+Every tool is read-only, except creating a note.
+
+51
+00:03:19,317 --> 00:03:20,843
+This bridge is optional.
+
+52
+00:03:20,843 --> 00:03:22,878
+Claude itself runs in the cloud,
+
+53
+00:03:22,878 --> 00:03:26,693
+so anything it reads through these tools leaves the machine.
+
+54
+00:03:26,693 --> 00:03:29,173
+The local pipeline never depends on it.
+
+55
+00:03:29,983 --> 00:03:34,552
+Across every module, accuracy comes from constraint, not model size.
+
+56
+00:03:34,552 --> 00:03:39,591
+Answers cite their sources, weak retrieval is declined rather than guessed,
+
+57
+00:03:39,591 --> 00:03:43,018
+and every limitation is backed by a verified quote.
+
+58
+00:03:43,817 --> 00:03:47,390
+The thesis takeaway: high-accuracy, grounded answers,
+
+59
+00:03:47,390 --> 00:03:52,649
+with no internet connection required, and no document ever leaving the device.
