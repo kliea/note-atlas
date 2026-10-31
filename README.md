@@ -135,6 +135,10 @@ ollama pull phi3 && ollama pull nomic-embed-text
 
 The same pipeline has a Streamlit front end for the MSIT lab: see [`lab/README.md`](lab/README.md) (`streamlit run lab/app.py` → http://localhost:8501).
 
+## Use Atlas from Claude (MCP)
+
+`backend/mcp_server.py` lets Claude Code and Claude Desktop list your Boards, read and search notes, run Ask, and add notes, through the running backend. Setup and the Desktop config are in [`docs/claude-mcp.md`](docs/claude-mcp.md).
+
 ## Squash-merge notes (`refactor/nui-board` → `main`)
 
 This branch is a strangler-fig cutover (R1–R7, R8 skipped, R9). Prefer a **squash merge** onto `main` so the public history is one commit, not the intermediate board-behind-a-hash steps.

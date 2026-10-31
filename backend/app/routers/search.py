@@ -14,8 +14,9 @@ router = APIRouter(tags=["search"])
 def get_search(
     q: str = Query(min_length=1),
     k: int = Query(default=5, ge=1, le=20),
+    board_id: int | None = Query(default=None),
 ) -> list[SearchHit]:
-    return search(q.strip(), k)
+    return search(q.strip(), k, board_id=board_id)
 
 
 @router.post("/reindex")
