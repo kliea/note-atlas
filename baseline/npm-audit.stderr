@@ -1,6 +1,0 @@
-npm warn Unknown env config "devdir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
-npm error code ENOLOCK
-npm error audit This command requires an existing lockfile.
-npm error audit Try creating one first with: npm i --package-lock-only
-npm error audit Original error: loadVirtual requires existing shrinkwrap file
-npm error A complete log of this run can be found in: /var/folders/hs/lvct3mrx6vzdfmqj65zt4c8h0000gn/T/cursor-sandbox-cache/db87aa557d28e8285e4284e645f02303/npm/_logs/2026-09-21T03_12_25_414Z-debug-0.log
