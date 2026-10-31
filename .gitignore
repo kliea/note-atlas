@@ -9,3 +9,4 @@ dist/
 .vite/
 .DS_Store
 *.egg-info/
+.claude/worktrees/
