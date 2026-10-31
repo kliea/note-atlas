@@ -1,5 +1,0 @@
-Found 2 known vulnerabilities in 1 package
-Name Version ID              Fix Versions
----- ------- --------------- ------------
-pip  26.1.2  PYSEC-2026-3721 26.2
-pip  26.1.2  PYSEC-2026-3721 26.2.0

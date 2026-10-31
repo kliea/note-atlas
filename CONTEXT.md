@@ -26,7 +26,7 @@ _Avoid_: source link, reference (a Reference is a Paper citing a Study)
 
 **Research Track**:
 A separate workspace, apart from any Board, dedicated to reading and relating academic papers.
-_Avoid_: research mode, research board, `research/` (that folder is the SCA experiment, unrelated)
+_Avoid_: research mode, research board
 
 **Study**:
 Any academic work the Research Track knows about; it is either a Lead or a Paper.
