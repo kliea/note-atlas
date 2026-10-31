@@ -12,6 +12,9 @@ Claude Code and Claude Desktop launch it locally; claude.ai in a browser can't r
 | `get_note(note_id)` | One note's raw text, topics and points | `GET /notes/{id}` |
 | `search(query, board?, k?)` | Best-matching passages with note titles | `GET /search` |
 | `ask(question, board?, note_ids?, k?)` | Atlas's own RAG answer (Ollama) with citations | `POST /ask` |
+| `list_studies(state?, query?)` | Research Track Papers (default), Leads, or all | `GET /research/studies` |
+| `get_study(study_id, include_references?)` | A Paper's Extraction, Claims and top lineage | `GET /research/studies/{id}` |
+| `research_ask(question, study_ids?)` | Research Ask over Papers' Extractions and Claims | `POST /research/ask` |
 | `create_note(title, raw_text, source?, board?)` | Add a note; extraction runs in the background | `POST /notes` |
 
 `board` takes a Board's name, slug or id. Every tool except `create_note` is marked read-only.
@@ -60,4 +63,5 @@ imports nothing from `app`.
 - "What Boards do I have in Atlas?"
 - "Search my Thesis Board for what I wrote about PII detection."
 - "Ask Atlas: how does my notes app chunk text?" (uses the local LLM, so it's slower)
+- "Which Papers in my Atlas library deal with PII, and what are their limitations?"
 - "Add a note to Thesis titled 'Reviewer feedback' with: …"
