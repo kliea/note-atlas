@@ -360,7 +360,9 @@ export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProp
     async (same: boolean) => {
       if (selectedId === null) return;
       try {
-        setDetail(await decideIdentity(selectedId, same));
+        const updated = await decideIdentity(selectedId, same);
+        setSelectedId(updated.id);
+        setDetail(updated);
         await loadStudies();
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -692,15 +694,18 @@ export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProp
               {detail.possible_match && (
                 <div className="research-callout research-callout-question">
                   <span>
-                    Is this the Lead you already have? <strong>{detail.possible_match.title}</strong>
+                    {detail.possible_match.state === "paper"
+                      ? "This looks like a study you already uploaded: "
+                      : "Is this the Lead you already have? "}
+                    <strong>{detail.possible_match.title}</strong>
                     {detail.possible_match.year ? ` (${detail.possible_match.year})` : ""}
                   </span>
                   <span className="research-row">
                     <button type="button" className="nav-btn" onClick={() => void answerIdentity(true)}>
-                      Yes, same work
+                      {detail.possible_match.state === "paper" ? "Discard this copy" : "Yes, same work"}
                     </button>
                     <button type="button" className="nav-btn" onClick={() => void answerIdentity(false)}>
-                      No
+                      {detail.possible_match.state === "paper" ? "Keep both" : "No"}
                     </button>
                   </span>
                 </div>

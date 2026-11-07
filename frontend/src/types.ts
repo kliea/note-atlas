@@ -203,6 +203,7 @@ export type LeadsStatus = "pending" | "running" | "done" | "failed" | "waiting_b
 
 export type PossibleMatch = {
   study_id: number;
+  state: StudyState;
   title: string;
   year: number | null;
   authors: string[];

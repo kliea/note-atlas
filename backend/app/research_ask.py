@@ -110,6 +110,16 @@ def _entries_for(conn: sqlite3.Connection, study_id: int) -> list[tuple[str | No
     return out
 
 
+def drop_index(study_id: int) -> None:
+    """Remove one Paper from the Research Ask index, including its vectors."""
+    conn = get_connection()
+    try:
+        _clear(conn, study_id)
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _clear(conn: sqlite3.Connection, study_id: int) -> None:
     ids = [int(r[0]) for r in conn.execute("SELECT id FROM research_chunks WHERE study_id = ?", (study_id,))]
     for chunk_id in ids:

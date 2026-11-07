@@ -351,13 +351,14 @@ def _possible_match(conn: sqlite3.Connection, match_id: int | None) -> PossibleM
     if match_id is None:
         return None
     row = conn.execute(
-        "SELECT id, title, year, authors_json FROM studies WHERE id = ? AND state = 'lead'",
+        "SELECT id, state, title, year, authors_json FROM studies WHERE id = ?",
         (match_id,),
     ).fetchone()
     if row is None:
         return None
     return PossibleMatch(
         study_id=int(row["id"]),
+        state=row["state"],
         title=row["title"],
         year=row["year"],
         authors=json.loads(row["authors_json"] or "[]"),
@@ -970,6 +971,62 @@ def merge_studies(survivor_id: int, absorbed_id: int) -> None:
         raise
     finally:
         conn.close()
+
+
+def papers_like(study_id: int) -> list[sqlite3.Row]:
+    """Earlier uploaded Papers that could be the same work (compared by title in Python)."""
+    conn = get_connection()
+    try:
+        return conn.execute(
+            """
+            SELECT id, title, year FROM studies
+            WHERE state = 'paper' AND id < ?
+              AND id NOT IN (SELECT study_id FROM identity_rejections WHERE paper_id = ?)
+            """,
+            (study_id, study_id),
+        ).fetchall()
+    finally:
+        conn.close()
+
+
+def match_rejected(paper_id: int, other_id: int) -> bool:
+    """True when the user already said this upload is not that Study."""
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM identity_rejections WHERE paper_id = ? AND study_id = ?",
+            (paper_id, other_id),
+        ).fetchone()
+        return row is not None
+    finally:
+        conn.close()
+
+
+def discard_upload(study_id: int) -> None:
+    """Delete a Paper the user confirmed is a copy of one already uploaded.
+
+    The PDF and parse sidecars go with it. Reference Leads that nothing else cites
+    go with it, the same way a re-parse clears them.
+    """
+    from app.research_ask import drop_index
+
+    row = study_row(study_id)
+    if row is None or row["state"] != "paper":
+        return
+    drop_index(study_id)
+    path = pdf_path(study_id)
+    conn = get_connection()
+    try:
+        _clear_references(conn, study_id)
+        conn.execute("DELETE FROM studies WHERE id = ?", (study_id,))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    for suffix in (".pdf", ".tei.xml", ".txt"):
+        path.with_suffix(suffix).unlink(missing_ok=True)
 
 
 def leads_like(study_id: int) -> list[sqlite3.Row]:

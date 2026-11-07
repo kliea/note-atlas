@@ -5,8 +5,9 @@ user's key). Order of lookups keeps cost low (docs/specs/research-track.md, "Lea
 1. The Paper: DOI → arXiv id → title search only as a last resort.
 2. Its References: match against the Paper's own `referenced_works` (one batch), then batch
    DOI/arXiv lookups, then Crossref title→DOI (free) for the rest.
-Strong identifiers (DOI, arXiv, OpenAlex or S2 id) merge Studies automatically; a close title
-alone only suggests a match for the user to confirm.
+Strong identifiers (DOI, arXiv, OpenAlex or S2 id) merge a Lead into a Paper automatically.
+A second upload of a Paper already in the Library, or a close title, is only a suggestion:
+the user confirms it, and confirming discards the new copy.
 """
 
 from __future__ import annotations
@@ -82,16 +83,45 @@ def _settle_identity(study_id: int, *, is_paper: bool) -> int:
     if is_paper:
         if other_state == "lead":
             research_store.merge_studies(study_id, other_id)
-        return study_id  # two uploads of the same Paper are left for the user
+        return study_id  # a second upload of the same Paper is suggested, not merged
     research_store.merge_studies(other_id, study_id)
     return other_id
 
 
-def _suggest_match(paper_id: int) -> None:
+def _suggest_match(paper_id: int, *, fuzzy: bool) -> None:
+    """Point this upload at a Study it may already be. Never blocks the job.
+
+    A shared DOI, arXiv id, OpenAlex id, or S2 id with an already uploaded Paper is a
+    duplicate and is suggested even before a network lookup. A close title and year, against
+    an uploaded Paper or a Lead, waits until `fuzzy` (the canonical title is in, or the API is off).
+    An uploaded Paper wins a tie: that is the copy the user can discard.
+    """
     row = research_store.study_row(paper_id)
     if row is None or row["possible_match_id"] is not None:
         return
+    same = research_store.find_same_study(
+        paper_id,
+        doi=row["doi"],
+        arxiv_id=row["arxiv_id"],
+        openalex_id=row["openalex_id"],
+        s2_id=row["s2_id"],
+    )
+    # Only an earlier upload counts. The new copy is what the user is asked about.
+    if (
+        same is not None
+        and same[1] == "paper"
+        and same[0] < paper_id
+        and not research_store.match_rejected(paper_id, same[0])
+    ):
+        research_store.set_possible_match(paper_id, same[0])
+        return
+    if not fuzzy:
+        return
     best_id, best_score = None, TITLE_MATCH - 1e-9
+    for paper in research_store.papers_like(paper_id):
+        score = title_similarity(row["title"], paper["title"])
+        if score > best_score and _years_agree(row["year"], paper["year"]):
+            best_id, best_score = int(paper["id"]), score
     for lead in research_store.leads_like(paper_id):
         score = title_similarity(row["title"], lead["title"])
         if score > best_score and _years_agree(row["year"], lead["year"]):
@@ -179,13 +209,13 @@ def _resolve_references(paper_id: int, paper_work: Work | None, source: Source) 
 def settle_locally(paper_id: int, *, suggest: bool) -> None:
     """Merge on the identifiers the PDF itself gives (DOI, arXiv id), with no network call:
     an uploaded Lead becomes this Paper, and References naming one work become one Lead.
-    With `suggest`, also offer a close-title Lead for the user to confirm."""
+    A duplicate of an uploaded Paper is suggested from the PDF's own identifiers immediately.
+    With `suggest`, also offer a close-title Paper or Lead for the user to confirm."""
     _settle_identity(paper_id, is_paper=True)
     for ref in research_store.reference_rows(paper_id):
         if ref["state"] == "lead" and (ref["doi"] or ref["arxiv_id"]):
             _settle_identity(int(ref["id"]), is_paper=False)
-    if suggest:
-        _suggest_match(paper_id)
+    _suggest_match(paper_id, fuzzy=suggest)
 
 
 def resolve_paper(paper_id: int) -> None:
@@ -197,7 +227,7 @@ def resolve_paper(paper_id: int) -> None:
         _apply(paper_id, work, source)
         _settle_identity(paper_id, is_paper=True)
     _resolve_references(paper_id, work, source)
-    _suggest_match(paper_id)
+    _suggest_match(paper_id, fuzzy=True)
 
 
 def api_enabled() -> bool:

@@ -177,15 +177,27 @@ def set_api_status(payload: ApiToggle) -> ApiStatus:
 
 @router.post("/studies/{study_id}/identity", response_model=StudyDetail)
 def decide_identity(study_id: int, payload: IdentityDecision) -> StudyDetail:
-    """Answer 'Is this the Lead you already have?' for a fuzzy match."""
+    """Answer whether this upload is a Study already in the Library.
+
+    A matching Lead is folded into this Paper. A matching uploaded Paper is kept,
+    and this copy is discarded. Either way, 'no' is remembered.
+    """
     study = research_store.get_study(study_id)
     if study is None or study.possible_match is None:
         raise HTTPException(status_code=409, detail="no pending match for this study")
+    match = study.possible_match
+    if payload.same and match.state == "paper":
+        kept_id = match.study_id
+        research_store.discard_upload(study_id)
+        kept = research_store.get_study(kept_id)
+        if kept is None:
+            raise HTTPException(status_code=404, detail="study not found")
+        return kept
     if payload.same:
-        research_store.merge_studies(study_id, study.possible_match.study_id)
+        research_store.merge_studies(study_id, match.study_id)
         research_store.set_possible_match(study_id, None)
     else:
-        research_store.reject_match(study_id, study.possible_match.study_id)
+        research_store.reject_match(study_id, match.study_id)
     updated = research_store.get_study(study_id)
     if updated is None:
         raise HTTPException(status_code=404, detail="study not found")

@@ -337,6 +337,7 @@ class LeadItem(BaseModel):
 
 class PossibleMatch(BaseModel):
     study_id: int
+    state: StudyState
     title: str
     year: int | None = None
     authors: list[str] = Field(default_factory=list)

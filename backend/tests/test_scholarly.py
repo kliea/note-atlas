@@ -199,6 +199,7 @@ def test_fuzzy_title_asks_and_remembers_the_answer(
     _resolve_all()
     match = client.get(f"/research/studies/{upload}").json()["possible_match"]
     assert match["study_id"] == book_lead
+    assert match["state"] == "lead"
 
     no = client.post(f"/research/studies/{upload}/identity", json={"same": False}).json()
     assert no["possible_match"] is None
@@ -220,6 +221,60 @@ def test_confirming_a_fuzzy_match_merges(
     client.post(f"/research/studies/{upload}/identity", json={"same": True})
     assert client.get(f"/research/studies/{book_lead}").status_code == 404
     assert client.get(f"/research/studies/{citing}").json()["references"][1]["study_id"] == upload
+
+
+def test_second_upload_of_the_same_paper_is_flagged(
+    client: TestClient, fake_openalex: FakeOpenAlex
+) -> None:
+    first = _upload(client, "a.pdf")
+    second = _upload(client, "b.pdf")
+    _resolve_all()
+    match = client.get(f"/research/studies/{second}").json()["possible_match"]
+    assert match["study_id"] == first
+    assert match["state"] == "paper"
+    assert client.get(f"/research/studies/{first}").json()["possible_match"] is None
+
+
+def test_confirming_a_duplicate_upload_discards_the_new_copy(
+    client: TestClient, fake_openalex: FakeOpenAlex
+) -> None:
+    first = _upload(client, "a.pdf")
+    second = _upload(client, "b.pdf")
+    _resolve_all()
+    kept = client.post(f"/research/studies/{second}/identity", json={"same": True}).json()
+    assert kept["id"] == first
+    assert client.get(f"/research/studies/{second}").status_code == 404
+    assert not research_store.pdf_path(second).exists()
+    assert client.get(f"/research/studies/{first}").status_code == 200
+    # The first Paper's References stay; the discarded copy does not leave a second set.
+    assert len(client.get("/research/studies", params={"state": "lead"}).json()) == 2
+
+
+def test_keeping_both_copies_is_remembered(client: TestClient, fake_openalex: FakeOpenAlex) -> None:
+    first = _upload(client, "a.pdf")
+    second = _upload(client, "b.pdf")
+    _resolve_all()
+    no = client.post(f"/research/studies/{second}/identity", json={"same": False}).json()
+    assert no["possible_match"] is None
+    client.post(f"/research/studies/{second}/resolve")
+    _resolve_all()
+    assert client.get(f"/research/studies/{second}").json()["possible_match"] is None
+    assert client.get(f"/research/studies/{first}").status_code == 200
+
+
+def test_similar_title_flags_an_uploaded_paper(
+    client: TestClient, fake_openalex: FakeOpenAlex, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = _upload(client, "a.pdf")
+    _resolve_all()
+    # Same title the first Paper settles to, but a DOI OpenAlex does not know.
+    near = TEI.replace("Lost in the Middle", PAPER["title"]).replace(PAPER_DOI, "10.0000/not-the-same")
+    monkeypatch.setattr(grobid, "process_fulltext", lambda _pdf: near)
+    second = _upload(client, "b.pdf")
+    _resolve_all()
+    match = client.get(f"/research/studies/{second}").json()["possible_match"]
+    assert match["study_id"] == first
+    assert match["state"] == "paper"
 
 
 # --- budget and the API switch ------------------------------------------------------
