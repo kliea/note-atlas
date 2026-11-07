@@ -4,9 +4,9 @@ Local-first spatial notebook. Capture a thought on the canvas; on save a local L
 
 ## Video explainer
 
-[![Note Atlas: local RAG explainer (3:55)](docs/video/note-atlas-explainer-poster.jpg)](docs/video/note-atlas-explainer.mp4)
+[![Note Atlas: local RAG explainer (4:01)](docs/video/note-atlas-explainer-poster.jpg)](docs/video/note-atlas-explainer.mp4)
 
-A 3:55 walkthrough covering why Atlas keeps RAG local, how Boards, Files and the Research Track work, how each uploaded paper is parsed, extracted, quote-checked and placed in its lineage, and the optional Claude MCP bridge. English captions are in [`note-atlas-explainer.srt`](docs/video/note-atlas-explainer.srt). The video is generated entirely from code, and [`docs/video/`](docs/video/README.md) has the script and the steps to rebuild it.
+A 4:01 walkthrough covering why Atlas keeps RAG local, how Boards, Files and the Research Track work, how each uploaded paper is parsed, extracted, quote-checked and placed in its lineage, and the optional Claude MCP bridge. English captions are in [`note-atlas-explainer.srt`](docs/video/note-atlas-explainer.srt). The video is generated entirely from code, and [`docs/video/`](docs/video/README.md) has the script and the steps to rebuild it.
 
 ## Interaction model
 

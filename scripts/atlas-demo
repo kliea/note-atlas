@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Run Note Atlas on an isolated demo dataset (for recordings and talks).
+# Same commands as atlas-ai: atlas-demo [start|stop|restart|status]
+# Notes, papers and Files folders go to data/demo/, so your real library never appears.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export DB_PATH=./data/demo/notes.db
+export FILES_DIR=./data/demo/files
+export FILES_CHROMA_PATH=./data/demo/chroma_files
+mkdir -p "$ROOT/data/demo/files"
+exec "$ROOT/scripts/atlas-ai" "$@"

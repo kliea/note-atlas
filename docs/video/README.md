@@ -1,8 +1,8 @@
 # Note Atlas explainer video
 
-[![Note Atlas explainer (3:55)](note-atlas-explainer-poster.jpg)](note-atlas-explainer.mp4)
+[![Note Atlas explainer (4:01)](note-atlas-explainer-poster.jpg)](note-atlas-explainer.mp4)
 
-A 3:55 academic explainer of Note Atlas: why local RAG, the three modules (Boards, Files, Research Track), how an uploaded paper is processed, the Claude MCP bridge, and how the design keeps answers accurate.
+A 4:01 academic explainer of Note Atlas: why local RAG, the three modules (Boards, Files, Research Track), how an uploaded paper is processed, the Claude MCP bridge, and how the design keeps answers accurate.
 
 | File | What it is |
 | --- | --- |
@@ -37,7 +37,7 @@ JOBS=2 ./build.sh
 | Step | File | Notes |
 | --- | --- | --- |
 | Script | `src/lines.py` | One narration line per scene, 20 scenes |
-| Voice | `src/tts.py` | [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) 82M via ONNX, voice `bm_george` (British English), speed 1.06 |
+| Voice | `src/tts.py` | [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) 82M via ONNX, voice `am_michael` (American English, a deep narration voice in the style of popular YouTube voices), speed 1.06. Set `VOICE=bm_george LANG_CODE=en-gb` for the British version |
 | Visuals | `src/render_base.py`, `render_modules.py`, `render_full.py` | 2D motion graphics drawn with [skia-python](https://github.com/kyamagu/skia-python), streamed to ffmpeg one scene per file |
 | Sync | `render_full.cue()` | Each animation is keyed to the position of a phrase in its narration line, so editing the script re-times the visuals |
 | Music | `src/music.py` | Original ambient piano and pad, synthesised with numpy, so there are no samples or licences |

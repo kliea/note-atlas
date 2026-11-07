@@ -57,6 +57,7 @@ while t0 < dur:
                 st = s0 + int(j * beat / 2 * SR) + int(rng.normal(0, .006) * SR)
                 vel = .16 * (1.0 if j == 0 else .7) * (.85 + .3 * rng.random())
                 note = piano(hz(ch[pi] + 12), 3.5, vel)
+                if st >= N: continue
                 e = min(N, st + len(note)); mix[max(st, 0):e] += note[:e - max(st, 0)]
     i += 1; t0 += bar
 

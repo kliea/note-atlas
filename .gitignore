@@ -10,3 +10,5 @@ dist/
 .DS_Store
 *.egg-info/
 .claude/worktrees/
+.env.local
+frontend/public/demo/
