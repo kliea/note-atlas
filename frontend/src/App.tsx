@@ -14,6 +14,7 @@ import { BoardSwitcher } from "./components/BoardSwitcher";
 import { BoardView } from "./components/BoardView";
 import { ResearchView, type ResearchTarget } from "./components/research/ResearchView";
 import { FilesView } from "./files/FilesView";
+import { FlowField } from "./components/FlowField";
 import { StatusPills } from "./components/StatusPills";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { useTheme } from "./hooks/useTheme";
@@ -160,10 +161,12 @@ export default function App() {
 
   return (
     <div className="shell">
-      <header className="topbar">
+      <FlowField />
+      <div className="app-layer">
+      <header className="topbar surface">
         <div>
           <h1>Note Atlas</h1>
-          <p className="lede">A spatial notebook that extracts and links in the background.</p>
+          <p className="lede muted">A spatial notebook that extracts and links in the background.</p>
         </div>
         <div className="topbar-tools">
           {workspace !== "research" ? (
@@ -182,7 +185,7 @@ export default function App() {
                 key={name}
                 type="button"
                 role="tab"
-                className="nav-btn"
+                className="nav-btn button"
                 aria-selected={workspace === name}
                 onClick={() => switchWorkspace(name)}
               >
@@ -206,6 +209,7 @@ export default function App() {
           onOpenStudy={openStudy}
         />
       ) : null}
+      </div>
     </div>
   );
 }

@@ -527,6 +527,7 @@ export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProp
       }}
       onDrop={onDrop}
     >
+      <div className="surface pane">
       <section className="research-library" aria-label="Library">
         <div className="research-row">
           <input
@@ -638,7 +639,9 @@ export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProp
           </table>
         )}
       </section>
+      </div>
 
+      <div className="surface pane">
       <section className="research-reader" aria-label="Reader">
         {askOpen && (
           <ResearchAskPanel
@@ -798,6 +801,7 @@ export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProp
           </>
         )}
       </section>
+      </div>
 
       {uploadOpen && (
         <UploadDialog

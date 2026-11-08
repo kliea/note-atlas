@@ -78,7 +78,7 @@ export function ResearchAskPanel({ studyIds, scopeLabel, onCite, onClose }: Rese
   }
 
   return (
-    <section className="research-ask" aria-label="Ask across Papers">
+    <section className="research-ask well" aria-label="Ask across Papers">
       <form
         className="research-row"
         onSubmit={(event) => {

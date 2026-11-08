@@ -43,7 +43,7 @@ export function BoardAskBar({ origin, noteIds, onSubmit, onClose }: BoardAskBarP
 
   return (
     <form
-      className="board-ask"
+      className="board-ask surface"
       style={{ left, top }}
       aria-label="Ask notes"
       onSubmit={handleSubmit}

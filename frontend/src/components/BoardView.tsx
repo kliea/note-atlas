@@ -1687,7 +1687,7 @@ function BoardCanvas({ colorMode, focusNoteId, onOpenStudy }: BoardViewProps) {
       />
       {error ? <p className="form-error">{error}</p> : null}
       <div
-        className={linkedIds ? "board-canvas has-selection" : "board-canvas"}
+        className={linkedIds ? "board-canvas well has-selection" : "board-canvas well"}
         role="application"
         aria-label="Board canvas"
         aria-keyshortcuts="N / ? L R Enter Space"
@@ -1769,7 +1769,7 @@ function BoardCanvas({ colorMode, focusNoteId, onOpenStudy }: BoardViewProps) {
         {shortcutsOpen ? <BoardShortcuts onClose={() => setShortcutsOpen(false)} /> : null}
         <button
           type="button"
-          className="board-pad"
+          className="board-pad surface button"
           onMouseDown={(event) => event.preventDefault()}
           onClick={spawnAtViewCenter}
           aria-label="Tear off a new note"

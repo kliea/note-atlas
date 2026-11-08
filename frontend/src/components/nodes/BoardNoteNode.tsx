@@ -62,6 +62,7 @@ export function BoardNoteNode({ id, data, selected }: NodeProps<BoardNoteNode>) 
     "map-node",
     "map-node-note",
     "board-note",
+    "surface",
     selected ? "selected" : "",
     data.editing ? "editing" : "",
     thinking ? "thinking" : "",

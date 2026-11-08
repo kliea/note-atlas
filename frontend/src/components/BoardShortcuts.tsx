@@ -37,7 +37,7 @@ export function BoardShortcuts({ onClose }: BoardShortcutsProps) {
       }}
     >
       <div
-        className="board-shortcuts"
+        className="board-shortcuts surface"
         role="dialog"
         aria-modal="true"
         aria-labelledby="board-shortcuts-title"

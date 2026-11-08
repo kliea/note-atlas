@@ -120,7 +120,7 @@ function BoardDialog({ board, canDelete, onClose, onSubmit, onDelete }: BoardDia
   return (
     <div className="research-modal-backdrop" onClick={onClose}>
       <form
-        className="research-modal board-dialog"
+        className="research-modal board-dialog surface"
         role="dialog"
         aria-modal="true"
         aria-labelledby="board-dialog-title"

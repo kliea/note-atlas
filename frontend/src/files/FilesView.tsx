@@ -239,6 +239,7 @@ export function FilesView() {
 
   return (
     <div className="files">
+      <div className="surface pane">
       <FolderList
         folders={folders}
         selectedId={selectedId}
@@ -247,6 +248,8 @@ export function FilesView() {
         onRename={renameFolder}
         onDelete={(folder) => void removeFolder(folder)}
       />
+      </div>
+      <div className="surface pane">
       <section
         className={`files-main ${dragging ? "files-dragging" : ""}`}
         aria-label="Files"
@@ -327,6 +330,7 @@ export function FilesView() {
         )}
         {folders.length > 0 && <FilesAsk folders={folders} folder={selected} settings={settings} />}
       </section>
+      </div>
     </div>
   );
 }

@@ -214,7 +214,7 @@ export function FilesAsk({ folders, folder, settings }: FilesAskProps) {
       </form>
 
       {current && (
-        <div className="files-answer" aria-live="polite">
+        <div className="files-answer well" aria-live="polite">
           <p className="files-question">{current.question}</p>
           {current.error ? (
             <p className="files-error">{current.error}</p>

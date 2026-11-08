@@ -25,7 +25,7 @@ type StudyNodeData = { title: string; year: number | null; state: StudyState; ro
 
 function StudyNode({ data }: NodeProps<Node<StudyNodeData>>) {
   return (
-    <div className={`research-node research-node-${data.state} ${data.focus ? "focus" : ""}`}>
+    <div className={`research-node surface research-node-${data.state} ${data.focus ? "focus" : ""}`}>
       <Handle type="target" position={Position.Left} />
       <div className="research-node-role">{data.role}</div>
       <div className="research-node-title">{data.title}</div>

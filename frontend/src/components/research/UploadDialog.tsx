@@ -27,7 +27,7 @@ export function UploadDialog({ onClose, onFiles }: UploadDialogProps) {
   return (
     <div className="research-modal-backdrop" onClick={onClose}>
       <div
-        className="research-modal"
+        className="research-modal surface"
         role="dialog"
         aria-modal="true"
         aria-labelledby="research-upload-title"
@@ -35,7 +35,7 @@ export function UploadDialog({ onClose, onFiles }: UploadDialogProps) {
       >
         <h3 id="research-upload-title">Upload papers</h3>
         <div
-          className={`research-dropzone ${over ? "over" : ""}`}
+          className={`research-dropzone well ${over ? "over" : ""}`}
           role="button"
           tabIndex={0}
           onClick={() => inputRef.current?.click()}

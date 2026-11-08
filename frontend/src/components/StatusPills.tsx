@@ -20,10 +20,13 @@ function labelFor(kind: "backend" | "model", state: PillState): string {
 export function StatusPills({ backend, model, modelName }: StatusPillsProps) {
   return (
     <div className="pills" role="status" aria-live="polite">
-      <span className={`pill pill-${backend}`}>
+      <span className={`pill pill-${backend}${backend === "ok" ? " stat--up" : backend === "error" ? " stat--warn" : ""}`}>
         backend = {labelFor("backend", backend)}
       </span>
-      <span className={`pill pill-${model}`} title={modelName ?? undefined}>
+      <span
+        className={`pill pill-${model}${model === "ok" ? " stat--up" : model === "error" ? " stat--warn" : ""}`}
+        title={modelName ?? undefined}
+      >
         model = {labelFor("model", model)}
       </span>
     </div>
