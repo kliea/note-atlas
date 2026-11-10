@@ -21,6 +21,7 @@ from app import (
     grobid,
     openalex,
     paper_extract,
+    paper_figures,
     paper_leads,
     paper_parents,
     reextract,
@@ -92,7 +93,12 @@ def _step_extract(study_id: int) -> None:
         method=fields.method,
         key_results=fields.key_results,
         scope=fields.scope,
+        framework=fields.framework,
     )
+    framework_figure, results_figure = paper_figures.extract_figures(
+        research_store.pdf_path(study_id).read_bytes()
+    )
+    research_store.apply_figures(study_id, framework_figure, results_figure)
     reextract.merge_claims(study_id, "contribution", [(text, None) for text in fields.contributions])
 
 

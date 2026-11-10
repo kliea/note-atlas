@@ -19,6 +19,7 @@ import {
   retryResolution,
   retryStudy,
   sendClaimToBoard,
+  studyFigureUrl,
   setApiEnabled,
   setApiSource,
   uploadPapers,
@@ -836,12 +837,34 @@ function provenance(detail: StudyDetail): string {
   return [detail.extraction_model, detail.extraction_parser, date].filter(Boolean).join(" · ");
 }
 
-const FIELDS: { key: "research_question" | "method" | "key_results" | "scope"; label: string }[] = [
+const FIELDS: { key: "research_question" | "framework" | "method" | "key_results" | "scope"; label: string }[] = [
   { key: "research_question", label: "Research question" },
+  { key: "framework", label: "Framework" },
   { key: "method", label: "Method" },
   { key: "key_results", label: "Key results" },
   { key: "scope", label: "Scope" },
 ];
+
+function ExtractionFigure({
+  studyId,
+  role,
+  caption,
+}: {
+  studyId: number;
+  role: "framework" | "results";
+  caption: string | null;
+}) {
+  if (!caption) return null;
+  return (
+    <div className="research-field">
+      <dt>{role === "framework" ? "Framework figure" : "Results figure"}</dt>
+      <dd>
+        <img className="research-figure" src={studyFigureUrl(studyId, role)} alt={caption} />
+        <span className="research-figure-caption">{caption}</span>
+      </dd>
+    </div>
+  );
+}
 
 function PaperExtraction({
   detail,
@@ -919,9 +942,17 @@ function PaperExtraction({
       {fieldsState === "done" && (
         <dl className="research-fields">
           {FIELDS.map(({ key, label }) => (
-            <div key={key} className={key === highlightField ? "research-field-highlight" : undefined}>
-              <dt>{label}</dt>
-              <dd>{detail[key] ?? <span className="research-muted">not found</span>}</dd>
+            <div key={key} className="research-field-group">
+              <div className={key === highlightField ? "research-field research-field-highlight" : "research-field"}>
+                <dt>{label}</dt>
+                <dd>{detail[key] ?? <span className="research-muted">not found</span>}</dd>
+              </div>
+              {key === "framework" && (
+                <ExtractionFigure studyId={detail.id} role="framework" caption={detail.framework_figure} />
+              )}
+              {key === "key_results" && (
+                <ExtractionFigure studyId={detail.id} role="results" caption={detail.results_figure} />
+              )}
             </div>
           ))}
         </dl>

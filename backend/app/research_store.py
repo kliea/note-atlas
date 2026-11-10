@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.db import get_connection, resolve_db_path
+from app.paper_figures import PaperFigure
 from app.models import (
     Claim,
     LeadItem,
@@ -459,6 +460,9 @@ def get_study(study_id: int) -> StudyDetail | None:
                 "method": row["method"],
                 "key_results": row["key_results"],
                 "scope": row["scope"],
+                "framework": row["framework"],
+                "framework_figure": row["framework_figure"],
+                "results_figure": row["results_figure"],
                 "extraction_model": row["extraction_model"],
                 "extraction_parser": row["extraction_parser"],
                 "extracted_at": row["extracted_at"],
@@ -509,7 +513,13 @@ def _claims(conn: sqlite3.Connection, study_id: int) -> list[Claim]:
 
 
 def apply_fields(
-    study_id: int, *, research_question: str, method: str, key_results: str, scope: str
+    study_id: int,
+    *,
+    research_question: str,
+    method: str,
+    key_results: str,
+    scope: str,
+    framework: str = "",
 ) -> None:
     conn = get_connection()
     try:
@@ -517,14 +527,54 @@ def apply_fields(
             """
             UPDATE studies
             SET research_question = NULLIF(?, ''), method = NULLIF(?, ''),
-                key_results = NULLIF(?, ''), scope = NULLIF(?, '')
+                key_results = NULLIF(?, ''), scope = NULLIF(?, ''),
+                framework = NULLIF(?, '')
             WHERE id = ?
             """,
-            (research_question, method, key_results, scope, study_id),
+            (research_question, method, key_results, scope, framework, study_id),
         )
         conn.commit()
     finally:
         conn.close()
+
+
+def figure_path(study_id: int, role: str) -> Path:
+    """PNG for the framework or results figure, beside the Paper's PDF."""
+    if role not in ("framework", "results"):
+        raise ValueError(role)
+    return papers_dir() / f"{study_id}-{role}.png"
+
+
+def apply_figures(
+    study_id: int, framework: PaperFigure | None, results: PaperFigure | None
+) -> None:
+    """Store the two figure captions and write their PNGs. None clears that figure."""
+    captions = {
+        "framework": _store_figure(study_id, "framework", framework),
+        "results": _store_figure(study_id, "results", results),
+    }
+    conn = get_connection()
+    try:
+        conn.execute(
+            """
+            UPDATE studies
+            SET framework_figure = NULLIF(?, ''), results_figure = NULLIF(?, '')
+            WHERE id = ?
+            """,
+            (captions["framework"], captions["results"], study_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _store_figure(study_id: int, role: str, figure: PaperFigure | None) -> str | None:
+    path = figure_path(study_id, role)
+    if figure is None:
+        path.unlink(missing_ok=True)
+        return None
+    path.write_bytes(figure.png)
+    return figure.caption
 
 
 def mark_extracted(study_id: int, model: str) -> None:
@@ -1027,6 +1077,8 @@ def discard_upload(study_id: int) -> None:
         conn.close()
     for suffix in (".pdf", ".tei.xml", ".txt"):
         path.with_suffix(suffix).unlink(missing_ok=True)
+    for role in ("framework", "results"):
+        figure_path(study_id, role).unlink(missing_ok=True)
 
 
 def leads_like(study_id: int) -> list[sqlite3.Row]:

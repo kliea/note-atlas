@@ -30,7 +30,7 @@ from app.models import (
     Topic,
 )
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 _V1_STATEMENTS = (
     """
@@ -131,7 +131,7 @@ def _load_sqlite_vec(conn: sqlite3.Connection) -> None:
 
 
 def migrate(conn: sqlite3.Connection | None = None) -> None:
-    """Apply pending schema versions (1 notes, 2 chunks, 3 space, 4 extract_status, 5 point context, 6 research track, 7 scholarly resolution, 8 Siblings and Ancestors, 9 notes sent from a Paper, 10 Research Track Ask index, 11 Semantic Scholar ids, 12 Files pipeline, 13 Boards)."""
+    """Apply pending schema versions (1 notes, 2 chunks, 3 space, 4 extract_status, 5 point context, 6 research track, 7 scholarly resolution, 8 Siblings and Ancestors, 9 notes sent from a Paper, 10 Research Track Ask index, 11 Semantic Scholar ids, 12 Files pipeline, 13 Boards, 14 framework summary and figures)."""
     owns_connection = conn is None
     if conn is None:
         conn = get_connection()
@@ -187,6 +187,9 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
         if 13 not in applied:
             _migrate_v13(conn)
             conn.execute("INSERT INTO schema_migrations (version) VALUES (13)")
+        if 14 not in applied:
+            _migrate_v14(conn)
+            conn.execute("INSERT INTO schema_migrations (version) VALUES (14)")
         conn.commit()
     finally:
         if owns_connection:
@@ -194,7 +197,7 @@ def migrate(conn: sqlite3.Connection | None = None) -> None:
 
 
 def migrate_down(target_version: int, conn: sqlite3.Connection | None = None) -> None:
-    """Roll schema back to target_version. v13 drops Boards; v12 drops the Files pipeline tables; v11 drops Semantic Scholar ids; v10 drops the Research Ask index; v9 drops note → Paper links; v8 drops Siblings and Ancestors; v7 drops scholarly resolution; v6 drops the research track; v5 drops point context; v4 drops extract_status; v3 drops space."""
+    """Roll schema back to target_version. v14 drops the framework summary and figure captions; v13 drops Boards; v12 drops the Files pipeline tables; v11 drops Semantic Scholar ids; v10 drops the Research Ask index; v9 drops note → Paper links; v8 drops Siblings and Ancestors; v7 drops scholarly resolution; v6 drops the research track; v5 drops point context; v4 drops extract_status; v3 drops space."""
     if target_version < 2:
         raise ValueError("cannot roll back below schema version 2 (chunks + sqlite-vec)")
     owns_connection = conn is None
@@ -207,6 +210,9 @@ def migrate_down(target_version: int, conn: sqlite3.Connection | None = None) ->
             raise ValueError(
                 f"target version {target_version} is ahead of applied {current}"
             )
+        if 14 in applied and target_version < 14:
+            _downgrade_v14(conn)
+            conn.execute("DELETE FROM schema_migrations WHERE version = 14")
         if 13 in applied and target_version < 13:
             _downgrade_v13(conn)
             conn.execute("DELETE FROM schema_migrations WHERE version = 13")
@@ -691,6 +697,23 @@ def _migrate_v13(conn: sqlite3.Connection) -> None:
         conn.execute(f"UPDATE {table} SET board_id = ? WHERE board_id IS NULL", (board_id,))
     conn.execute("CREATE INDEX IF NOT EXISTS notes_board ON notes (board_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS file_folders_board ON file_folders (board_id)")
+
+
+_FRAMEWORK_COLUMNS = ("framework", "framework_figure", "results_figure")
+
+
+def _migrate_v14(conn: sqlite3.Connection) -> None:
+    existing = _column_names(conn, "studies")
+    for column in _FRAMEWORK_COLUMNS:
+        if column not in existing:
+            conn.execute(f"ALTER TABLE studies ADD COLUMN {column} TEXT")
+
+
+def _downgrade_v14(conn: sqlite3.Connection) -> None:
+    existing = _column_names(conn, "studies")
+    for column in _FRAMEWORK_COLUMNS:
+        if column in existing:
+            conn.execute(f"ALTER TABLE studies DROP COLUMN {column}")
 
 
 def _downgrade_v13(conn: sqlite3.Connection) -> None:

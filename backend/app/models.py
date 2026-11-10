@@ -435,6 +435,9 @@ class StudyDetail(StudySummary):
     method: str | None = None
     key_results: str | None = None
     scope: str | None = None
+    framework: str | None = None
+    framework_figure: str | None = None
+    results_figure: str | None = None
     extraction_model: str | None = None
     extraction_parser: str | None = None
     extracted_at: str | None = None

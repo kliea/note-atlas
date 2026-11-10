@@ -268,6 +268,9 @@ export type StudyDetail = StudySummary & {
   method: string | null;
   key_results: string | null;
   scope: string | null;
+  framework: string | null;
+  framework_figure: string | null;
+  results_figure: string | null;
   extraction_model: string | null;
   extraction_parser: string | null;
   extracted_at: string | null;

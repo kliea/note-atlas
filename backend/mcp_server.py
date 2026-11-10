@@ -207,7 +207,7 @@ def list_studies(state: str = "paper", query: str = "") -> list[dict[str, Any]]:
 
 @mcp.tool(annotations=READ_ONLY)
 def get_study(study_id: int, include_references: bool = False) -> dict[str, Any]:
-    """Read one Study: its Extraction (research question, method, key results, scope), its
+    """Read one Study: its Extraction (research question, framework, method, key results, scope), its
     Claims (contributions and limitations, with quotes), and its lineage (Parent Papers,
     Siblings, Ancestors).
 
@@ -218,7 +218,8 @@ def get_study(study_id: int, include_references: bool = False) -> dict[str, Any]
         study,
         (
             "id", "state", "title", "authors", "year", "venue", "doi", "arxiv_id", "oa_url",
-            "abstract", "research_question", "method", "key_results", "scope", "reference_count",
+            "abstract", "research_question", "framework", "method", "key_results", "scope",
+            "framework_figure", "results_figure", "reference_count",
         ),
     )
     result["claims"] = [

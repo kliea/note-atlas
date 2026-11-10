@@ -38,6 +38,10 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8888";
 
+export function studyFigureUrl(studyId: number, role: "framework" | "results"): string {
+  return `${API_BASE}/research/studies/${studyId}/figure/${role}`;
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, init);
   if (!response.ok) {

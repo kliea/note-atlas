@@ -1285,10 +1285,15 @@ html[data-theme="dark"] .board-shortcuts kbd {
   margin: 0.4rem 0 0.8rem;
 }
 
-.research-fields div {
+.research-field {
   display: grid;
   grid-template-columns: 9rem 1fr;
   gap: 0.8rem;
+}
+
+.research-field-group {
+  display: grid;
+  gap: 0.6rem;
 }
 
 .research-fields dt {
@@ -1297,6 +1302,20 @@ html[data-theme="dark"] .board-shortcuts kbd {
 
 .research-fields dd {
   margin: 0;
+}
+
+.research-figure {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0.2rem 0 0.35rem;
+  background: #fff;
+}
+
+.research-figure-caption {
+  display: block;
+  color: var(--muted);
+  font-size: 0.85rem;
 }
 
 .research-claims {
@@ -1382,7 +1401,7 @@ html[data-theme="dark"] .board-shortcuts kbd {
 }
 
 @media (max-width: 800px) {
-  .research-fields div {
+  .research-field {
     grid-template-columns: 1fr;
     gap: 0.1rem;
   }

@@ -30,8 +30,16 @@ _FIELDS_SCHEMA: dict[str, Any] = {
         "method": {"type": "string"},
         "key_results": {"type": "string"},
         "scope": {"type": "string"},
+        "framework": {"type": "string"},
     },
-    "required": ["research_question", "contributions", "method", "key_results", "scope"],
+    "required": [
+        "research_question",
+        "contributions",
+        "method",
+        "key_results",
+        "scope",
+        "framework",
+    ],
 }
 
 _LIMITATIONS_SCHEMA: dict[str, Any] = {
@@ -79,6 +87,9 @@ _FIELDS_RULES = (
     "method: how they answered the question.\n"
     "key_results: the main findings, keeping the paper's own numbers.\n"
     "scope: the conditions under which the results are claimed to hold (domain, data, setting).\n"
+    "framework: the paper's theoretical and conceptual framework in 4-7 sentences: the concepts, "
+    "models, and components it uses and how they connect into what it proposes. Leave it empty when "
+    "the paper describes none. Do not repeat the title, the research question, or the key results.\n"
     "Use only what the text says. Do not invent anything."
 )
 
@@ -90,6 +101,7 @@ class ExtractedFields:
     method: str
     key_results: str
     scope: str
+    framework: str = ""
 
 
 @dataclass
@@ -148,6 +160,7 @@ def _fields_from(data: dict[str, Any]) -> ExtractedFields:
         method=str(data.get("method", "")).strip(),
         key_results=str(data.get("key_results", "")).strip(),
         scope=str(data.get("scope", "")).strip(),
+        framework=str(data.get("framework", "")).strip(),
     )
 
 
@@ -176,6 +189,59 @@ def extract_fields(title: str, abstract: str, body: str) -> ExtractedFields:
         + json.dumps(partials, ensure_ascii=False)
     )
     return _fields_from(_ask(merge_prompt, _FIELDS_SCHEMA))
+
+
+_FRAMEWORK_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"framework": {"type": "string"}},
+    "required": ["framework"],
+}
+_FRAMEWORK_HINT = re.compile(
+    r"framework|architectur|conceptual|theoret|proposed system|hybrid",
+    re.IGNORECASE,
+)
+
+
+def extract_framework(title: str, abstract: str, body: str) -> str:
+    """The theoretical and conceptual framework only, for a Paper already extracted."""
+    prompt = (
+        "You are reading an academic paper. Summarize its theoretical and conceptual framework: "
+        "the concepts, models, and components it uses, and how they connect into the system or "
+        "argument it proposes. Write 4 to 7 sentences of plain prose. Do not repeat the title. "
+        "Use only the text. Do not invent citations, numbers, or a framework the paper does not "
+        "describe. If it describes none, return an empty string.\n\n"
+        f"TITLE: {title}\nABSTRACT: {abstract}\n\nTEXT:\n{_framework_excerpt(body)}"
+    )
+    return str(_ask(prompt, _FRAMEWORK_SCHEMA).get("framework", "")).strip()
+
+
+_SECTION_START = re.compile(r"architectur|framework|conceptual|theoret|methodolog", re.IGNORECASE)
+_SECTION_STOP = re.compile(
+    r"\b(result|evaluation|conclusion|experiment|discussion|literature|related work)\b",
+    re.IGNORECASE,
+)
+
+
+def _framework_excerpt(body: str) -> str:
+    """The methodology and architecture, stopping before results and related work."""
+    sections = [part.strip() for part in re.split(r"(?=^## )", body, flags=re.MULTILINE) if part.strip()]
+    chosen: list[str] = []
+    started = False
+    for section in sections:
+        head = section.split("\n", 1)[0]
+        if not started:
+            if _SECTION_START.search(head) and not _SECTION_STOP.search(head):
+                started = True
+            else:
+                continue
+        elif _SECTION_STOP.search(head):
+            break
+        chosen.append(section)
+    text = "\n\n".join(chosen)
+    if len(text) < 800:
+        paragraphs = [part.strip() for part in re.split(r"\n\s*\n", body) if part.strip()]
+        text = "\n\n".join(part for part in paragraphs if _FRAMEWORK_HINT.search(part)) or body.strip()
+    return text[:12_000]
 
 
 def propose_limitations(body: str) -> list[LimitationCandidate]:

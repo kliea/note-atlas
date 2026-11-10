@@ -96,7 +96,14 @@ def test_extract_fields_single_call(monkeypatch: pytest.MonkeyPatch) -> None:
     (call,) = fake.calls
     assert call["priority"] == "research"
     assert call["temperature"] == 0
-    assert call["schema"]["required"] == ["research_question", "contributions", "method", "key_results", "scope"]
+    assert call["schema"]["required"] == [
+        "research_question",
+        "contributions",
+        "method",
+        "key_results",
+        "scope",
+        "framework",
+    ]
     assert "A finding or a number is NOT a contribution" in call["prompt"]
 
 

@@ -36,6 +36,7 @@ FIELDS: tuple[tuple[str, str], ...] = (
     ("method", "Method"),
     ("key_results", "Key results"),
     ("scope", "Scope"),
+    ("framework", "Framework"),
 )
 _FIELD_LABELS = dict(FIELDS)
 
@@ -48,6 +49,7 @@ _KIND_WORDS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bresearch questions?\b", re.I), "research_question"),
     (re.compile(r"\bresults?\b|\bfindings?\b", re.I), "key_results"),
     (re.compile(r"\bscopes?\b", re.I), "scope"),
+    (re.compile(r"\bframeworks?\b|\bconceptual\b|\btheoret", re.I), "framework"),
 )
 # Overview prompts over a selection read the selected Papers whole, as board Ask does for a lasso.
 _OVERVIEW = re.compile(r"summar(?:y|ize|ise)|overview|tldr|compare|what(?:'s| is| are) in (?:these|this)", re.I)

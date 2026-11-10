@@ -9,7 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Response, 
 import json
 from collections.abc import Iterator
 
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from app import openalex, research_ask, research_store, scholarly, sources
 from app.ambient import ingest_note
@@ -70,6 +70,15 @@ def list_studies(
     q: str = Query(default="", max_length=200),
 ) -> list[StudySummary]:
     return research_store.list_studies(state, q)
+
+
+@router.get("/studies/{study_id}/figure/{role}")
+def study_figure(study_id: int, role: Literal["framework", "results"]) -> FileResponse:
+    """The framework or results figure extracted from this Paper's PDF."""
+    path = research_store.figure_path(study_id, role)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="figure not found")
+    return FileResponse(path, media_type="image/png")
 
 
 @router.get("/studies/{study_id}", response_model=StudyDetail)
