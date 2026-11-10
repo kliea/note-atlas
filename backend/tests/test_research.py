@@ -199,6 +199,18 @@ def test_upload_then_parse_turns_references_into_leads(
     assert [p["id"] for p in papers] == [created["id"]]
 
 
+def test_uploaded_pdf_is_served_inline(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(grobid, "process_fulltext", lambda _pdf: TEI)
+    (created,) = _upload(client, "liu2023.pdf")
+    response = client.get(f"/research/studies/{created['id']}/file")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert "inline" in response.headers["content-disposition"].lower()
+    assert "liu2023.pdf" in response.headers["content-disposition"]
+    assert response.content.startswith(b"%PDF")
+    assert client.get("/research/studies/999/file").status_code == 404
+
+
 def test_reparse_does_not_duplicate_leads(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(grobid, "process_fulltext", lambda _pdf: TEI)
     (created,) = _upload(client, "a.pdf")

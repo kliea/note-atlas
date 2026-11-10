@@ -1000,6 +1000,35 @@ html[data-theme="dark"] .board-shortcuts kbd {
   overflow: auto;
 }
 
+.research-reader:has(.research-file-view) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.research-file-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 0.35rem;
+}
+
+.research-file-name {
+  display: flex;
+  gap: 0.8rem;
+  align-items: baseline;
+}
+
+.research-file {
+  flex: 1;
+  width: 100%;
+  min-height: 28rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: #fff;
+}
+
 .research-row {
   display: flex;
   gap: 0.5rem;

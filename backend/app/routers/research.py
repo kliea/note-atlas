@@ -72,6 +72,21 @@ def list_studies(
     return research_store.list_studies(state, q)
 
 
+@router.get("/studies/{study_id}/file")
+def study_file(study_id: int) -> FileResponse:
+    """The PDF the user uploaded for this Paper, shown in the reader rather than downloaded."""
+    study = research_store.get_study(study_id)
+    path = research_store.pdf_path(study_id)
+    if study is None or study.state != "paper" or not path.is_file():
+        raise HTTPException(status_code=404, detail="uploaded file not found")
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        filename=study.original_filename or f"{study_id}.pdf",
+        content_disposition_type="inline",
+    )
+
+
 @router.get("/studies/{study_id}/figure/{role}")
 def study_figure(study_id: int, role: Literal["framework", "results"]) -> FileResponse:
     """The framework or results figure extracted from this Paper's PDF."""

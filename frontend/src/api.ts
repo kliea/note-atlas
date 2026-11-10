@@ -42,6 +42,10 @@ export function studyFigureUrl(studyId: number, role: "framework" | "results"): 
   return `${API_BASE}/research/studies/${studyId}/figure/${role}`;
 }
 
+export function studyFileUrl(studyId: number): string {
+  return `${API_BASE}/research/studies/${studyId}/file`;
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, init);
   if (!response.ok) {

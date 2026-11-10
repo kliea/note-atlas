@@ -20,6 +20,7 @@ import {
   retryStudy,
   sendClaimToBoard,
   studyFigureUrl,
+  studyFileUrl,
   setApiEnabled,
   setApiSource,
   uploadPapers,
@@ -173,7 +174,7 @@ function byline(study: StudySummary): string {
   return [authors, [study.venue, study.year].filter(Boolean).join(" ")].filter(Boolean).join(" · ");
 }
 
-type ReaderTab = "reading" | "lineage";
+type ReaderTab = "reading" | "file" | "lineage";
 
 // Open a Paper at one of its Claims (from a board note's Paper chip).
 export type ResearchTarget = { studyId: number; claimId: number | null };
@@ -666,7 +667,7 @@ export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProp
             </p>
             {detail.state === "paper" && (
               <div className="research-row research-chips" role="tablist" aria-label="Paper view">
-                {(["reading", "lineage"] as const).map((t) => (
+                {(["reading", "file", "lineage"] as const).map((t) => (
                   <button
                     key={t}
                     type="button"
@@ -675,12 +676,26 @@ export function ResearchView({ colorMode, target, onOpenNote }: ResearchViewProp
                     className={`research-chip ${tab === t ? "on" : ""}`}
                     onClick={() => setTab(t)}
                   >
-                    {t === "reading" ? "Reading" : "Lineage"}
+                    {t === "reading" ? "Reading" : t === "file" ? "File" : "Lineage"}
                   </button>
                 ))}
               </div>
             )}
-            {detail.state === "paper" && tab === "lineage" ? (
+            {detail.state === "paper" && tab === "file" ? (
+              <div className="research-file-view">
+                <p className="research-muted research-file-name">
+                  {detail.original_filename ?? "Uploaded PDF"}
+                  <a href={studyFileUrl(detail.id)} target="_blank" rel="noreferrer">
+                    Open ↗
+                  </a>
+                </p>
+                <iframe
+                  className="research-file"
+                  title={detail.original_filename ?? "Uploaded PDF"}
+                  src={studyFileUrl(detail.id)}
+                />
+              </div>
+            ) : detail.state === "paper" && tab === "lineage" ? (
               <>
                 <LeadsNotice detail={detail} onRefresh={() => void onRefreshLeads()} onTurnOn={() => void toggleApi()} />
                 <LineageGraph detail={detail} colorMode={colorMode} onOpen={setSelectedId} />
